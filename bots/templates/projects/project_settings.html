@@ -11,5 +11,6 @@
     {% include 'projects/partials/zoom_credentials.html' with credential_type=zoom_credential_type credentials=zoom_credentials %}
     {% include 'projects/partials/deepgram_credentials.html' with credential_type=deepgram_credential_type credentials=deepgram_credentials %}
     {% include 'projects/partials/video_tutorial_modal.html' with modal_title="Getting Zoom & Deepgram credentials" loom_url="https://www.loom.com/embed/7cbd3eab1bc4438fb1badcb3787996d6?sid=825a92b5-51ca-447c-86c1-c45f5294ec9d"  %}
+    {% include 'projects/partials/webhook_configurations.html' with webhook_configurations=webhook_configurations webhook_types=webhook_types %}
 </div>
 {% endblock %} 

@@ -953,3 +953,47 @@ class BotMediaRequestManager:
 
         media_request.state = BotMediaRequestStates.DROPPED
         media_request.save()
+
+class WebhookTypes(models.IntegerChoices):
+    BOT_STATE_CHANGE = 1, 'Bot State Change'
+    RECORDING_STATE_CHANGE = 2, 'Recording State Change'
+    TRANSCRIPTION_STATE_CHANGE = 3, 'Transcription State Change'
+
+class WebhookConfiguration(models.Model):
+    OBJECT_ID_PREFIX = 'hook_'
+    object_id = models.CharField(max_length=32, unique=True, editable=False)
+
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name='webhook_configurations'
+    )
+
+    webhook_type = models.IntegerField(
+        choices=WebhookTypes.choices,
+        null=False
+    )
+
+    destination_url = models.URLField(max_length=2048)
+    verified_at = models.DateTimeField(null=True, blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def save(self, *args, **kwargs):
+        if not self.object_id:
+            # Generate a random 16-character string
+            random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
+            self.object_id = f"{self.OBJECT_ID_PREFIX}{random_string}"
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.get_webhook_type_display()} webhook for {self.project.name} to {self.destination_url}"
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['project', 'webhook_type', 'destination_url'],
+                name='unique_webhook_configuration'
+            )
+        ]

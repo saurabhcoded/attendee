@@ -3,8 +3,8 @@ from .models import Project, Bot, BotStates, Bot, Credentials, RecordingStates, 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views import View
 from django.http import HttpResponse
-from .models import ApiKey
-from django.db import models
+from .models import ApiKey, WebhookConfiguration, WebhookTypes
+from django.db import models, IntegrityError
 
 class ProjectUrlContextMixin:
     def get_project_context(self, object_id, project):
@@ -222,3 +222,68 @@ class ProjectBotDetailView(LoginRequiredMixin, ProjectUrlContextMixin, View):
         })
         
         return render(request, 'projects/project_bot_detail.html', context)
+    
+class ProjectWebhooksView(LoginRequiredMixin, ProjectUrlContextMixin, View):
+    def get(self, request, object_id):
+        project = get_object_or_404(Project, 
+            object_id=object_id,
+            organization=request.user.organization
+        )
+        context = self.get_project_context(object_id, project)
+        context['webhook_configurations'] = WebhookConfiguration.objects.filter(
+            project=project
+        ).order_by('-created_at')
+        context['webhook_types'] = WebhookTypes
+        return render(request, 'projects/project_webhooks.html', context)
+
+class CreateWebhookView(LoginRequiredMixin, View):
+    def post(self, request, object_id):
+        project = get_object_or_404(Project, 
+            object_id=object_id,
+            organization=request.user.organization
+        )
+        
+        webhook_type = request.POST.get('webhook_type')
+        destination_url = request.POST.get('destination_url')
+        
+        if not webhook_type or not destination_url:
+            return HttpResponse("Webhook type and destination URL are required", status=400)
+            
+        try:
+            webhook_type = int(webhook_type)
+            if webhook_type not in [choice[0] for choice in WebhookTypes.choices]:
+                return HttpResponse('Invalid webhook type', status=400)
+        except ValueError:
+            return HttpResponse('Invalid webhook type', status=400)
+
+        try:
+            webhook = WebhookConfiguration.objects.create(
+                project=project,
+                webhook_type=webhook_type,
+                destination_url=destination_url
+            )
+            
+            # Return the success modal content
+            return render(request, 'projects/partials/webhook_created_modal.html', {
+                'webhook': webhook
+            })
+        except IntegrityError:
+            return HttpResponse(
+                "A webhook with this type and destination URL already exists", 
+                status=400
+            )
+
+class DeleteWebhookView(LoginRequiredMixin, ProjectUrlContextMixin, View):
+    def delete(self, request, object_id, hook_object_id):
+        webhook = get_object_or_404(WebhookConfiguration, 
+            object_id=hook_object_id,
+            project__organization=request.user.organization
+        )
+        webhook.delete()
+        
+        context = self.get_project_context(object_id, webhook.project)
+        context['webhook_configurations'] = WebhookConfiguration.objects.filter(
+            project=webhook.project
+        ).order_by('-created_at')
+        context['webhook_types'] = WebhookTypes
+        return render(request, 'projects/partials/webhook_configurations.html', context)

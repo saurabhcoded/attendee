@@ -12,6 +12,9 @@ urlpatterns = [
     path('<str:object_id>/keys/create/', projects_views.CreateApiKeyView.as_view(), name='create-api-key'),
     path('<str:object_id>/keys/<str:key_object_id>/delete/', projects_views.DeleteApiKeyView.as_view(), name='delete-api-key'),
     path('<str:object_id>/settings/credentials/', projects_views.CreateCredentialsView.as_view(), name='create-credentials'),
+    path('<str:object_id>/webhooks/', projects_views.ProjectWebhooksView.as_view(), name='project-webhooks'),
+    path('<str:object_id>/webhooks/create/', projects_views.CreateWebhookView.as_view(), name='create-webhook'),
+    path('<str:object_id>/webhooks/<str:hook_object_id>/delete/', projects_views.DeleteWebhookView.as_view(), name='delete-webhook'),
     # Don't put anything after this, it will redirect to the dashboard
     path('<str:object_id>/', projects_views.RedirectToDashboardView.as_view(), name='project-unrecognized'),
     path('<str:object_id>/<path:extra>', projects_views.RedirectToDashboardView.as_view(), name='project-unrecognized'),

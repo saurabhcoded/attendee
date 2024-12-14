@@ -1,0 +1,80 @@
+<div class="card mt-4" id="webhooksTable">
+    <div class="card-header">
+        <h5 class="mb-0">Webhooks</h5>
+    </div>
+    <div class="card-body">
+        {% if webhook_configurations %}
+            <!-- Create Button -->
+            <button class="btn btn-primary mb-3" 
+                    data-bs-toggle="modal" 
+                    data-bs-target="#createWebhookModal">
+                Create Webhook
+            </button>
+
+            <div class="table-responsive">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Type</th>
+                            <th>Destination URL</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for webhook in webhook_configurations %}
+                        <tr>
+                            <td>{{ webhook.get_webhook_type_display }}</td>
+                            <td>{{ webhook.destination_url }}</td>
+                            <td>{{ webhook.created_at|date:"M d, Y H:i" }}</td>
+                            <td>
+                                <button class="btn btn-danger btn-sm"
+                                        data-bs-toggle="modal" 
+                                        data-bs-target="#deleteModal{{ webhook.object_id }}">
+                                    Delete
+                                </button>
+
+                                <!-- Delete Confirmation Modal -->
+                                <div class="modal" id="deleteModal{{ webhook.object_id }}" tabindex="-1">
+                                    <div class="modal-dialog">
+                                        <div class="modal-content">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title">Confirm Deletion</h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <p>Are you sure you want to delete this webhook? This action cannot be undone.</p>
+                                                <p><strong>Type:</strong> {{ webhook.get_webhook_type_display }}</p>
+                                                <p><strong>URL:</strong> {{ webhook.destination_url }}</p>
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                                <button class="btn btn-danger"
+                                                        hx-delete="{% url 'projects:delete-webhook' project.object_id webhook.object_id %}"
+                                                        hx-swap="outerHTML"
+                                                        hx-select="#webhooksTable"
+                                                        hx-target="#webhooksTable"
+                                                        hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                                                        data-bs-dismiss="modal">
+                                                    Delete
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <p>No webhooks configured.</p>
+            <button class="btn btn-primary" 
+                data-bs-toggle="modal" 
+                data-bs-target="#createWebhookModal">
+                Create Webhook
+            </button>
+        {% endif %}
+    </div>
+</div>
