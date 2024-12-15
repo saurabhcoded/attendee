@@ -167,12 +167,16 @@ class ProjectSettingsView(LoginRequiredMixin, ProjectUrlContextMixin, View):
             credential_type=Credentials.CredentialTypes.DEEPGRAM
         ).first()
 
+        webhook_configurations = WebhookConfiguration.objects.filter(project=project).order_by('-created_at')
+
         context = self.get_project_context(object_id, project)
         context.update({
             'zoom_credentials': zoom_credentials.get_credentials() if zoom_credentials else None,
             'zoom_credential_type': Credentials.CredentialTypes.ZOOM_OAUTH,
             'deepgram_credentials': deepgram_credentials.get_credentials() if deepgram_credentials else None,
             'deepgram_credential_type': Credentials.CredentialTypes.DEEPGRAM,
+            'webhook_configurations': webhook_configurations,
+            'webhook_types': WebhookTypes,
         })
         
         return render(request, 'projects/project_settings.html', context)
@@ -257,16 +261,21 @@ class CreateWebhookView(LoginRequiredMixin, View):
             return HttpResponse('Invalid webhook type', status=400)
 
         try:
-            webhook = WebhookConfiguration.objects.create(
+            WebhookConfiguration.objects.create(
                 project=project,
                 webhook_type=webhook_type,
                 destination_url=destination_url
             )
             
-            # Return the success modal content
-            return render(request, 'projects/partials/webhook_created_modal.html', {
-                'webhook': webhook
-            })
+            # Return the updated webhook list instead of a modal
+            context = {
+                'project': project,
+                'webhook_configurations': WebhookConfiguration.objects.filter(
+                    project=project
+                ).order_by('-created_at'),
+                'webhook_types': WebhookTypes
+            }
+            return render(request, 'projects/partials/webhook_configurations.html', context)
         except IntegrityError:
             return HttpResponse(
                 "A webhook with this type and destination URL already exists", 

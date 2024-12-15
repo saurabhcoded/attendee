@@ -956,8 +956,7 @@ class BotMediaRequestManager:
 
 class WebhookTypes(models.IntegerChoices):
     BOT_STATE_CHANGE = 1, 'Bot State Change'
-    RECORDING_STATE_CHANGE = 2, 'Recording State Change'
-    TRANSCRIPTION_STATE_CHANGE = 3, 'Transcription State Change'
+    RECORDING_STATE_CHANGE = 2, 'Recording or Transcription State Change'
 
 class WebhookConfiguration(models.Model):
     OBJECT_ID_PREFIX = 'hook_'
