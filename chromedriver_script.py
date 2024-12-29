@@ -14,7 +14,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 
 async def join_meet():
-    meet_link = os.getenv("GMEET_LINK", "https://meet.google.com/oxt-nbwk-ubm")
+    meet_link = os.getenv("GMEET_LINK", "https://meet.google.com/bzy-feuh-rxr")
     print(f"start recorder for {meet_link}")
 
     options = uc.ChromeOptions()
@@ -192,6 +192,312 @@ function decodeCaptionFromBuffer(buffer) {
     }
 }
 
+class CollectionMessage {
+  constructor() {
+    this.body = null; // Contains CollectionMessageBody
+  }
+
+  // Decodes a CollectionMessage from a Uint8Array of protobuf bytes
+  static decode(reader, length) {
+    // If we don't have a proper reader, create one
+    if (!(reader instanceof Reader)) {
+      reader = Reader.create(reader);
+    }
+
+    // Get the length of data to read
+    const end = length === undefined ? reader.len : reader.pos + length;
+    
+    // Create a new message instance
+    const message = new CollectionMessage();
+
+    // Read fields until we reach the end
+    while (reader.pos < end) {
+      // Get the field number and wire type
+      const tag = reader.uint32();
+      
+      switch (tag >>> 3) { // Field number
+        case 1: // body field
+          message.body = CollectionMessageBody.decode(reader, reader.uint32());
+          break;
+        default:
+          reader.skipType(tag & 7); // Skip unknown fields
+      }
+    }
+
+    return message;
+  }
+}
+
+class CollectionMessageBody {
+  constructor() {
+    this.wrapper = null; // Contains Wrapper1
+  }
+
+  static decode(reader, length) {
+    if (!(reader instanceof Reader)) {
+      reader = Reader.create(reader);
+    }
+
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = new CollectionMessageBody();
+
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      
+      switch (tag >>> 3) {
+        case 2: // wrapper field
+          message.wrapper = Wrapper1.decode(reader, reader.uint32());
+          break;
+        default:
+          reader.skipType(tag & 7);
+      }
+    }
+
+    return message;
+  }
+}
+
+class Wrapper1 {
+  constructor() {
+    this.wrapper = null; // Contains Wrapper2
+  }
+
+  static decode(reader, length) {
+    if (!(reader instanceof Reader)) {
+      reader = Reader.create(reader);
+    }
+
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = new Wrapper1();
+
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      
+      switch (tag >>> 3) {
+        case 13: // wrapper field
+          message.wrapper = Wrapper2.decode(reader, reader.uint32());
+          break;
+        default:
+          reader.skipType(tag & 7);
+      }
+    }
+
+    return message;
+  }
+}
+
+class Wrapper2 {
+  constructor() {
+    this.wrapper = null; // Contains Wrapper3
+    this.chat = []; // Array of ChatWrapper
+  }
+
+  static decode(reader, length) {
+    if (!(reader instanceof Reader)) {
+      reader = Reader.create(reader);
+    }
+
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = new Wrapper2();
+
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      
+      switch (tag >>> 3) {
+        case 1: // wrapper field
+          message.wrapper = Wrapper3.decode(reader, reader.uint32());
+          break;
+        case 4: // chat field
+          if (!message.chat) {
+            message.chat = [];
+          }
+          message.chat.push(ChatWrapper.decode(reader, reader.uint32()));
+          break;
+        default:
+          reader.skipType(tag & 7);
+      }
+    }
+
+    return message;
+  }
+}
+
+class Wrapper3 {
+  constructor() {
+    this.userDetails = []; // Array of UserDetails
+  }
+
+  static decode(reader, length) {
+    if (!(reader instanceof Reader)) {
+      reader = Reader.create(reader);
+    }
+
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = new Wrapper3();
+
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      
+      switch (tag >>> 3) {
+        case 2: // userDetails field
+          if (!message.userDetails) {
+            message.userDetails = [];
+          }
+          message.userDetails.push(UserDetails.decode(reader, reader.uint32()));
+          break;
+        default:
+          reader.skipType(tag & 7);
+      }
+    }
+
+    return message;
+  }
+}
+
+class UserDetails {
+  constructor() {
+    this.deviceId = "";
+    this.fullName = "";
+    this.profile = "";
+    this.name = "";
+  }
+
+  static decode(reader, length) {
+    if (!(reader instanceof Reader)) {
+      reader = Reader.create(reader);
+    }
+
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = new UserDetails();
+
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      
+      switch (tag >>> 3) {
+        case 1:
+          message.deviceId = reader.string();
+          break;
+        case 2:
+          message.fullName = reader.string();
+          break;
+        case 3:
+          message.profile = reader.string();
+          break;
+        case 29:
+          message.name = reader.string();
+          break;
+        default:
+          reader.skipType(tag & 7);
+      }
+    }
+
+    return message;
+  }
+}
+
+class ChatWrapper {
+  constructor() {
+    this.body = null; // Contains ChatData
+  }
+
+  static decode(reader, length) {
+    if (!(reader instanceof Reader)) {
+      reader = Reader.create(reader);
+    }
+
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = new ChatWrapper();
+
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      
+      switch (tag >>> 3) {
+        case 2: // body field
+          message.body = ChatData.decode(reader, reader.uint32());
+          break;
+        default:
+          reader.skipType(tag & 7);
+      }
+    }
+
+    return message;
+  }
+}
+
+class ChatData {
+  constructor() {
+    this.messageId = "";
+    this.deviceId = "";
+    this.timestamp = 0; // int64
+    this.msg = null; // Contains ChatText
+  }
+
+  static decode(reader, length) {
+    if (!(reader instanceof Reader)) {
+      reader = Reader.create(reader);
+    }
+
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = new ChatData();
+
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      
+      switch (tag >>> 3) {
+        case 1:
+          message.messageId = reader.string();
+          break;
+        case 2:
+          message.deviceId = reader.string();
+          break;
+        case 3:
+          message.timestamp = reader.int64();
+          break;
+        case 5:
+          message.msg = ChatText.decode(reader, reader.uint32());
+          break;
+        default:
+          reader.skipType(tag & 7);
+      }
+    }
+
+    return message;
+  }
+}
+
+class ChatText {
+  constructor() {
+    this.text = "";
+  }
+
+  static decode(reader, length) {
+    if (!(reader instanceof Reader)) {
+      reader = Reader.create(reader);
+    }
+
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = new ChatText();
+
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      
+      switch (tag >>> 3) {
+        case 1:
+          message.text = reader.string();
+          break;
+        default:
+          reader.skipType(tag & 7);
+      }
+    }
+
+    return message;
+  }
+}
+
+// Usage example:
+function decodeCollectionMessage(unzippedBytes) {
+  return CollectionMessage.decode(unzippedBytes);
+}
 
 class WebRtcProxy {
     constructor(config) {
@@ -262,6 +568,7 @@ class WebRtcProxy {
             
             if (config && config.debug) {
                 console.log("created peer connection", peerConnection);
+                console.log("state", state)
             }
 
             // Use captured state instead of this.state
@@ -295,12 +602,58 @@ const handleCaptionMessage = (event) => {
     const caption = decodeCaptionFromBuffer(event.data);
     console.log('caption', caption)
 }
+userMap = new Map()
+const handleCollectionMessage = (event) => {
+    if (true) {
+        console.log("collection message: ", event);
+    }
+
+
+    const unzippedData = Reader.create(pako.inflate(new Uint8Array(event.data)));
+    const message = decodeCollectionMessage(unzippedData);
+    console.log('handleCollectionMessage message', message)
+    if (!message.body?.wrapper?.wrapper) {
+        return;
+    }
+
+    // Handle chat messages
+    if (message.body.wrapper.wrapper.chat) {
+        const chatMessages = message.body.wrapper.wrapper.chat;
+        for (const chat of chatMessages) {
+            const user = userMap.get(chat.body.deviceId);
+            chatMessagesMap.set(chat.body.messageId, {
+                ...chat.body,
+                user: {
+                    name: user?.name || "",
+                    fullName: user?.fullName || "",
+                    image: user?.image || "",
+                    id: user?.id || ""
+                }
+            });
+        }
+    }
+
+    // Handle user details
+    if (message.body.wrapper.wrapper.wrapper?.userDetails) {
+        const users = message.body.wrapper.wrapper.wrapper.userDetails;
+        for (const user of users) {
+            userMap.set(user.deviceId, {
+                id: user.deviceId,
+                name: user.name,
+                fullName: user.fullName,
+                image: user.profile
+            });
+        }
+    }
+};
+
 
 const handleDataChannel = (peerConnection, event) => {
+    console.log('handleDataChannel', event);
     if (event.channel.label === "collections") {
         window.proxyPeerConnection = peerConnection;
         
-        if (debug) {
+        if (true) {
             console.log("data channel message: ", event);
         }
         
