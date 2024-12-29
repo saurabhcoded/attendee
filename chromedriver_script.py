@@ -106,52 +106,36 @@ class Caption {
      * @returns {Caption} Decoded Caption instance
      */
     static decode(reader, length) {
-    reader = reader instanceof Reader ? reader : Reader.create(reader);
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = new Caption();
+    console
+        reader = reader instanceof Reader ? reader : Reader.create(reader);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = new Caption();
 
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1:
-                // Instead of reading deviceSpace as a string, read it as bytes
-                // and create a new Reader to parse the nested message
-                const innerBuffer = reader.bytes();
-                try {
-                    const innerReader = Reader.create(innerBuffer);
-                    while (innerReader.pos < innerBuffer.length) {
-                        const innerTag = innerReader.uint32();
-                        const innerField = innerTag >>> 3;
-                        
-                        switch (innerField) {
-                            case 6: // Caption field
-                                message.caption = innerReader.string();
-                                break;
-                            case 2: // CaptionId field
-                                message.captionId = innerReader.int64();
-                                break;
-                            case 3: // Version field
-                                message.version = innerReader.int64();
-                                break;
-                            case 8: // LanguageId field
-                                message.languageId = innerReader.int64();
-                                break;
-                            default:
-                                innerReader.skipType(innerTag & 7);
-                                break;
-                        }
-                    }
-                } catch (error) {
-                    console.error('Error parsing inner message:', error);
-                }
-                break;
-            default:
-                reader.skipType(tag & 7);
-                break;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1:
+                    message.deviceSpace = reader.string();
+                    break;
+                case 2:
+                    message.captionId = reader.int64();
+                    break;
+                case 3:
+                    message.version = reader.int64();
+                    break;
+                case 6:
+                    message.caption = reader.string();
+                    break;
+                case 8:
+                    message.languageId = reader.int64();
+                    break;
+                default:
+                    reader.skipType(tag & 7);
+                    break;
+            }
         }
+        return message;
     }
-    return message;
-}
 
     /**
      * Verifies a Caption message
@@ -185,15 +169,24 @@ class Caption {
 
 function decodeCaptionFromBuffer(buffer) {
     try {
-        console.log('1 sstart')
-        const reader = Reader.create(new Uint8Array(buffer));
-        console.log('reader', reader)
-        // Decode the Caption message
-        const caption = Caption.decode(reader);
-        console.log('2 end')
-        return caption;
+        // Create initial reader for outer message
+        const outerReader = Reader.create(new Uint8Array(buffer));
+        
+        // Read the first field (tag 1) which contains our actual caption data
+        const tag = outerReader.uint32();
+        if ((tag >>> 3) === 1) { // Field number 1
+            // Extract the inner buffer containing the actual caption protobuf
+            const innerBuffer = outerReader.bytes();
+            // Create new reader for the inner message and decode it
+            const innerReader = Reader.create(innerBuffer);
+            const caption = Caption.decode(innerReader);
+            return caption;
+        }
+        
+        console.error('Unexpected protobuf structure');
+        return null;
     } catch (error) {
-        console.error('Error creating reader from buffer:', error);
+        console.error('Error decoding caption buffer:', error);
         console.error('Buffer:', buffer);
         return null;
     }
