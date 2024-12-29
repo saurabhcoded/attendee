@@ -499,6 +499,96 @@ function decodeCollectionMessage(unzippedBytes) {
   return CollectionMessage.decode(unzippedBytes);
 }
 
+class SpaceCollection {
+    constructor() {
+        this.wrapper = null; // Contains UserDetailsWrapper
+    }
+
+    static decode(reader, length) {
+        if (!(reader instanceof Reader)) {
+            reader = Reader.create(reader);
+        }
+
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = new SpaceCollection();
+
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            
+            switch (tag >>> 3) {
+                case 2: // wrapper field
+                    message.wrapper = UserDetailsWrapper.decode(reader, reader.uint32());
+                    break;
+                default:
+                    reader.skipType(tag & 7);
+            }
+        }
+
+        return message;
+    }
+}
+
+class MeetingSpaceCollectionResponse {
+    constructor() {
+        this.spaces = null; // Contains SpaceCollection
+    }
+
+    static decode(reader, length) {
+        if (!(reader instanceof Reader)) {
+            reader = Reader.create(reader);
+        }
+
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = new MeetingSpaceCollectionResponse();
+
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            
+            switch (tag >>> 3) {
+                case 2: // spaces field
+                    message.spaces = SpaceCollection.decode(reader, reader.uint32());
+                    break;
+                default:
+                    reader.skipType(tag & 7);
+            }
+        }
+
+        return message;
+    }
+}
+
+class UserDetailsWrapper {
+    constructor() {
+        this.userDetails = []; // Array of UserDetails
+    }
+
+    static decode(reader, length) {
+        if (!(reader instanceof Reader)) {
+            reader = Reader.create(reader);
+        }
+
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = new UserDetailsWrapper();
+
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            
+            switch (tag >>> 3) {
+                case 2: // userDetails field
+                    if (!message.userDetails) {
+                        message.userDetails = [];
+                    }
+                    message.userDetails.push(UserDetails.decode(reader, reader.uint32()));
+                    break;
+                default:
+                    reader.skipType(tag & 7);
+            }
+        }
+
+        return message;
+    }
+}
+
 class WebRtcProxy {
     constructor(config) {
         this.state = {
@@ -593,6 +683,74 @@ class WebRtcProxy {
         console.log('register', this.state)
     }
 }
+
+function FetchProxy(options) {
+    // Stores array of registered URL patterns and their callbacks
+    let registeredHandlers = [];
+
+    return {
+        /**
+         * Initializes the fetch proxy by replacing the native fetch
+         * Returns false if fetch API is not available
+         */
+        initialize: () => {
+            // Check if fetch is available in window
+            if (!window.fetch) {
+                return false;
+            }
+
+            // Log initialization if debug mode is enabled
+            if (options?.debug) {
+                console.log('fetch initialized');
+            }
+
+            // Store reference to original fetch
+            const originalFetch = window.fetch;
+
+            // Replace window.fetch with proxied version
+            window.fetch = function(...args) {
+                return new Promise((resolve, reject) => {
+                    // Call original fetch
+                    originalFetch.apply(this, args)
+                        .then((response) => {
+                            // Check if response URL matches any registered handlers
+                            for (const handler of registeredHandlers) {
+                                if (response.url === handler.url) {
+                                    try {
+                                        // Clone response since it can only be consumed once
+                                        const responseClone = response.clone();
+                                        // Call registered callback with cloned response
+                                        handler.callback(responseClone);
+                                    } catch (error) {
+                                        console.error('failed calling proxy for fetch with error', error);
+                                    }
+                                }
+                            }
+                            // Resolve with original response
+                            resolve(response);
+                        })
+                        .catch((error) => {
+                            reject(error);
+                        });
+                });
+            };
+
+            return true;
+        },
+
+        /**
+         * Registers new URL handlers with the proxy
+         * @param {Array<{url: string, callback: Function}>} handlers Array of handlers to register
+         */
+        register: (handlers) => {
+            registeredHandlers = [
+                ...registeredHandlers,
+                ...handlers
+            ];
+        }
+    };
+}
+
 const monitorCaptionsChannel = (channel) => {
     console.log('monitorCaptionsChannel', channel)
 }
@@ -681,6 +839,106 @@ peerConnectionProxy.register({
         }
     ]
 });
+
+function base64ToUint8Array(base64) {
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes;
+}
+
+const REQUEST_HANDLERS = {
+  // Syncs meeting space collections (participants, chat history, etc)
+  'SyncMeetingSpaceCollections': async (response) => {
+    console.log('SyncMeetingSpaceCollections response = ', response);
+    const responseText = await response.text();
+    const decodedData = base64ToUint8Array(responseText);
+    console.log('decodedData', decodedData)
+    const meetingSpace = MeetingSpaceCollectionResponse.decode(decodedData);
+    console.log('meetingSpace', meetingSpace)
+    // Extract user details from the response
+    if (meetingSpace.spaces?.wrapper?.userDetails) {
+      for (const user of meetingSpace.spaces.wrapper.userDetails) {
+        userMap.set(user.deviceId, {
+          id: user.deviceId,
+          name: user.name,
+          fullName: user.fullName,
+          image: user.profile
+        });
+      }
+    }
+  },
+
+  // Handles chat message creation
+  'CreateMeetingMessage': async (response) => {
+    console.log('CreateMeetingMessage response = ', response);
+    const responseText = await response.text();
+    const decodedData = base64ToUint8Array(responseText);
+    const chatData = ChatData.decode(decodedData);
+    
+    if (!chatData) return;
+    
+    const user = userMap.get(chatData.deviceId);
+    messageMap.set(chatData.messageId, {
+      ...chatData,
+      user: {
+        name: user?.name || '',
+        fullName: user?.fullName || '',
+        image: user?.image || '',
+        id: user?.id || ''
+      }
+    });
+  },
+
+  // Resolves meeting space details
+  'ResolveMeetingSpace': async (response) => {
+    console.log('ResolveMeetingSpace response = ', response);
+    const responseText = await response.text();
+    const decodedData = Buffer.from(responseText, 'base64');
+    const meetingData = ResolveMeeting.decode(Uint8Array.from(decodedData));
+    
+    meetingMetadata = {
+      kind: 'fallback',
+      summary: meetingData.title,
+      hangoutLink: meetingData.hangoutsUrl
+    };
+  }
+};
+
+/**
+ * Fetch Proxy Implementation
+ * 
+ * The code uses an XHR proxy to intercept and monitor specific Google Meet API endpoints:
+ * 1. SyncMeetingSpaceCollections - Gets meeting participants and chat history
+ * 2. CreateMeetingMessage - Monitors chat messages
+ * 3. ResolveMeetingSpace - Gets meeting metadata
+ * 
+ * The proxy is registered with URL patterns and callbacks for each endpoint.
+ * When a matching request is made, the proxy intercepts the response and:
+ * - Decodes the base64 response data
+ * - Extracts relevant information (users, messages, meeting details)
+ * - Updates internal maps with the extracted data
+ */
+
+// Proxy registration happens in initialize():
+const fetchProxy = FetchProxy({ debug: true });
+fetchProxy.initialize();
+fetchProxy.register([
+  {
+    url: "https://meet.google.com/$rpc/google.rtc.meetings.v1.MeetingSpaceService/SyncMeetingSpaceCollections",
+    callback: REQUEST_HANDLERS.SyncMeetingSpaceCollections
+  },
+  {
+    url: "https://meet.google.com/$rpc/google.rtc.meetings.v1.MeetingMessageService/CreateMeetingMessage",
+    callback: REQUEST_HANDLERS.CreateMeetingMessage
+  },
+  {
+    url: "https://meet.google.com/$rpc/google.rtc.meetings.v1.MeetingSpaceService/ResolveMeetingSpace",
+    callback: REQUEST_HANDLERS.ResolveMeetingSpace
+  }
+]);
 
     """
 
