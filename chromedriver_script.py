@@ -820,7 +820,7 @@ const handleDataChannel = (peerConnection, event) => {
 };
 
 const handleTrack = async (peerConnection, event) => {
-    console.log('Received track:', event.track.kind);
+    console.log('Received track:', event);
     
     if (event.track.kind === 'video') {
         try {
@@ -910,6 +910,14 @@ const monitorVideoProcessingChannel = (channel) => {
     console.log('monitorVideoProcessingChannel', channel)
 }
 
+const handleMediaDirectorMessage = (event) => {
+    console.log('handleMediaDirectorMessage', event)
+}
+
+const monitorMediaDirectorChannel = (channel) => {
+    console.log('monitorMediaDirectorChannel', channel)
+}
+
 const peerConnectionProxy = new WebRtcProxy({debug: true});
 const proxyStatus = peerConnectionProxy.initialize();
 peerConnectionProxy.register({
@@ -928,6 +936,11 @@ peerConnectionProxy.register({
             label: "video-processing", 
             callback: handleVideoProcessingMessage,
             monitor: monitorVideoProcessingChannel 
+        },
+        { 
+            label: "media-director", 
+            callback: handleMediaDirectorMessage,
+            monitor: monitorMediaDirectorChannel 
         }
     ]
 });
