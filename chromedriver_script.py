@@ -14,7 +14,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 
 async def join_meet():
-    meet_link = os.getenv("GMEET_LINK", "https://meet.google.com/bzy-feuh-rxr")
+    meet_link = os.getenv("GMEET_LINK", "https://meet.google.com/pnv-nfca-ieq")
     print(f"start recorder for {meet_link}")
 
     options = uc.ChromeOptions()
@@ -819,8 +819,95 @@ const handleDataChannel = (peerConnection, event) => {
     }
 };
 
-const handleTrack = (t) => {
-    console.log('handleTrack', t)
+const handleTrack = async (peerConnection, event) => {
+    console.log('Received track:', event.track.kind);
+    
+    if (event.track.kind === 'video') {
+        try {
+            // Create processor to get raw frames
+            const processor = new MediaStreamTrackProcessor({ track: event.track });
+            const generator = new MediaStreamTrackGenerator({ kind: 'video' });
+            
+            // Get readable stream of video frames
+            const readable = processor.readable;
+            const writable = generator.writable;
+
+            // Transform stream to intercept frames
+            const transformStream = new TransformStream({
+                async transform(frame, controller) {
+                    if (!frame) {
+                        return;
+                    }
+
+                    try {
+                        // Check if controller is still active
+                        if (controller.desiredSize === null) {
+                            frame.close();
+                            return;
+                        }
+
+                        // Copy the frame to get access to raw data
+                        const rawFrame = new VideoFrame(frame, {
+                            format: 'I420'
+                        });
+
+                        // Get the raw data from the frame
+                        const data = new Uint8Array(rawFrame.allocationSize());
+                        rawFrame.copyTo(data);
+
+                        console.log('Raw I420 data:', {
+                            timestamp: frame.timestamp,
+                            width: frame.displayWidth,
+                            height: frame.displayHeight,
+                            format: rawFrame.format,
+                            dataSize: data.length,
+                            sampleBytes: Array.from(data.slice(0, 16))
+                        });
+
+                        rawFrame.close();
+                        controller.enqueue(frame);
+                    } catch (error) {
+                        console.error('Error processing frame:', error);
+                        frame.close();
+                    }
+                },
+                flush() {
+                    console.log('Transform stream flush called');
+                }
+            });
+
+            // Create an abort controller for cleanup
+            const abortController = new AbortController();
+
+            try {
+                // Connect the streams
+                await readable
+                    .pipeThrough(transformStream)
+                    .pipeTo(writable, {
+                        signal: abortController.signal
+                    })
+                    .catch(error => {
+                        if (error.name !== 'AbortError') {
+                            console.error('Pipeline error:', error);
+                        }
+                    });
+            } catch (error) {
+                console.error('Stream pipeline error:', error);
+                abortController.abort();
+            }
+
+        } catch (error) {
+            console.error('Error setting up video interceptor:', error);
+        }
+    }
+};
+
+const handleVideoProcessingMessage = (event) => {
+    console.log('handleVideoProcessingMessage', event)
+}
+
+const monitorVideoProcessingChannel = (channel) => {
+    console.log('monitorVideoProcessingChannel', channel)
 }
 
 const peerConnectionProxy = new WebRtcProxy({debug: true});
@@ -836,6 +923,11 @@ peerConnectionProxy.register({
             label: "captions", 
             callback: handleCaptionMessage,
             monitor: monitorCaptionsChannel 
+        },
+        { 
+            label: "video-processing", 
+            callback: handleVideoProcessingMessage,
+            monitor: monitorVideoProcessingChannel 
         }
     ]
 });
