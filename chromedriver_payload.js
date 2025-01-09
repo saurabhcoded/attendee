@@ -640,6 +640,158 @@ const handleCollectionEvent = (event) => {
   }
 };
 
+class Caption {
+  constructor(properties = {}) {
+      // Initialize default values
+      this.deviceSpace = "";
+      this.captionId = 0;
+      this.version = 0;
+      this.caption = "";
+      this.languageId = 0;
+
+      // Copy provided properties
+      for (const key of Object.keys(properties)) {
+          if (properties[key] != null) {
+              this[key] = properties[key];
+          }
+      }
+  }
+
+  /**
+   * Creates a new Caption instance
+   * @param {Object} properties - Initial properties
+   * @returns {Caption} New Caption instance
+   */
+  static create(properties) {
+      return new Caption(properties);
+  }
+
+  /**
+   * Encodes the Caption instance to binary format
+   * @param {Caption} message - Caption instance to encode
+   * @param {Writer} writer - Binary writer instance
+   * @returns {Writer} Writer with encoded data
+   */
+  static encode(message, writer) {
+      writer = writer || Writer.create();
+
+      if (message.deviceSpace != null) {
+          writer.uint32(10).string(message.deviceSpace);
+      }
+      if (message.captionId != null) {
+          writer.uint32(16).int64(message.captionId);
+      }
+      if (message.version != null) {
+          writer.uint32(24).int64(message.version);
+      }
+      if (message.caption != null) {
+          writer.uint32(50).string(message.caption);
+      }
+      if (message.languageId != null) {
+          writer.uint32(64).int64(message.languageId);
+      }
+
+      return writer;
+  }
+
+/**
+   * Decodes a Caption from binary format
+   * @param {Reader} reader - Binary reader instance
+   * @param {number} length - Message length
+   * @returns {Caption} Decoded Caption instance
+   */
+  static decode(reader, length) {
+      reader = reader instanceof protobuf.Reader ? reader : protobuf.Reader.create(reader);
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = new Caption();
+
+      while (reader.pos < end) {
+          const tag = reader.uint32();
+          switch (tag >>> 3) {
+              case 1:
+                  message.deviceSpace = reader.string();
+                  break;
+              case 2:
+                  message.captionId = reader.int64();
+                  break;
+              case 3:
+                  message.version = reader.int64();
+                  break;
+              case 6:
+                  message.caption = reader.string();
+                  break;
+              case 8:
+                  message.languageId = reader.int64();
+                  break;
+              default:
+                  reader.skipType(tag & 7);
+                  break;
+          }
+      }
+      return message;
+  }
+
+  /**
+   * Verifies a Caption message
+   * @param {Object} message - Message to verify
+   * @returns {string|null} null if valid, error message if invalid
+   */
+  static verify(message) {
+      if (typeof message !== "object" || message === null) {
+          return "object expected";
+      }
+
+      if (message.deviceSpace != null && !isString(message.deviceSpace)) {
+          return "deviceSpace: string expected";
+      }
+      if (message.captionId != null && !isValidLong(message.captionId)) {
+          return "captionId: integer|Long expected";
+      }
+      if (message.version != null && !isValidLong(message.version)) {
+          return "version: integer|Long expected";
+      }
+      if (message.caption != null && !isString(message.caption)) {
+          return "caption: string expected";
+      }
+      if (message.languageId != null && !isValidLong(message.languageId)) {
+          return "languageId: integer|Long expected";
+      }
+
+      return null;
+  }
+}
+
+function decodeCaptionFromBuffer(buffer) {
+  try {
+      // Create initial reader for outer message
+      const outerReader = protobuf.Reader.create(new Uint8Array(buffer));
+      
+      // Read the first field (tag 1) which contains our actual caption data
+      const tag = outerReader.uint32();
+      if ((tag >>> 3) === 1) { // Field number 1
+          // Extract the inner buffer containing the actual caption protobuf
+          const innerBuffer = outerReader.bytes();
+          // Create new reader for the inner message and decode it
+          const innerReader = protobuf.Reader.create(innerBuffer);
+          const caption = Caption.decode(innerReader);
+          return caption;
+      }
+      
+      console.error('Unexpected protobuf structure');
+      return null;
+  } catch (error) {
+      console.error('Error decoding caption buffer:', error);
+      console.error('Buffer:', buffer);
+      return null;
+  }
+}
+
+const handleCaptionEvent = (event) => {
+  console.log('handleCaptionMessage44', event.data);
+  const caption = decodeCaptionFromBuffer(event.data);
+  console.log('caption22', caption)
+}
+
 new RTCInterceptor({
     onPeerConnectionCreate: (peerConnection) => {
         console.log('New RTCPeerConnection created:', peerConnection);
@@ -658,9 +810,16 @@ new RTCInterceptor({
         console.log('On PeerConnection:', peerConnection);
         console.log('Channel label:', dataChannel.label);
 
-        if (dataChannel.label === 'collections') {
-            dataChannel.addEventListener("message", (event) => {
-                console.log('collectionsevent', event)
+        //if (dataChannel.label === 'collections') {
+          //  dataChannel.addEventListener("message", (event) => {
+         //       console.log('collectionsevent', event)
+        //    });
+        //}
+
+       if (dataChannel.label === 'captions') {
+            dataChannel.addEventListener("message", (captionEvent) => {
+                console.log('captionEventzzz', captionEvent);
+                handleCaptionEvent(captionEvent);
             });
         }
     }
