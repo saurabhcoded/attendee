@@ -1,3 +1,61 @@
+// User manager
+class UserManager {
+    constructor(ws) {
+        this.allUsersMap = new Map();
+        this.currentUsersMap = new Map();
+        this.ws = ws;
+    }
+
+    singleUserSynced(user) {
+      // Create array with new user and existing users, then filter for unique deviceIds
+      // keeping the first occurrence (new user takes precedence)
+      const allUsers = [user, ...this.currentUsersMap.values()];
+      const uniqueUsers = Array.from(
+        new Map(allUsers.map(user => [user.deviceId, user])).values()
+      );
+      this.newUsersListSynced(uniqueUsers);
+    }
+
+    newUsersListSynced(newUsersList) {
+        // Get the current user IDs before updating
+        const previousUserIds = new Set(this.currentUsersMap.keys());
+        const newUserIds = new Set(newUsersList.map(user => user.deviceId));
+
+        // Update all users map
+        for (const user of newUsersList) {
+            this.allUsersMap.set(user.deviceId, {
+                deviceId: user.deviceId,
+                displayName: user.displayName,
+                fullName: user.fullName,
+                profile: user.profile
+            });
+        }
+
+        // Calculate joined and left users
+        const joined = newUsersList.filter(user => !previousUserIds.has(user.deviceId));
+        const left = Array.from(previousUserIds)
+            .filter(id => !newUserIds.has(id))
+            .map(id => this.currentUsersMap.get(id));
+
+        // Clear current users map and update with new list
+        this.currentUsersMap.clear();
+        for (const user of newUsersList) {
+            this.currentUsersMap.set(user.deviceId, {
+                deviceId: user.deviceId,
+                displayName: user.displayName,
+                fullName: user.fullName,
+                profile: user.profile
+            });
+        }
+
+        this.ws.sendJson({
+            type: 'UsersUpdate',
+            joined: joined,
+            left: left
+        });
+    }
+}
+
 // Websocket client
 class WebSocketClient {
   // Message types
@@ -449,7 +507,7 @@ const messageTypes = [
             { name: 'deviceId', fieldNumber: 1, type: 'string' },
             { name: 'fullName', fieldNumber: 2, type: 'string' },
             { name: 'profilePicture', fieldNumber: 3, type: 'string' },
-            { name: 'firstName', fieldNumber: 29, type: 'string' }
+            { name: 'displayName', fieldNumber: 29, type: 'string' }
         ]
     }
 ];
@@ -502,6 +560,7 @@ function createMessageDecoder(messageType) {
 }
 
 const ws = new WebSocketClient();
+const userManager = new UserManager(ws);
 
 // Create decoders for all message types
 const messageDecoders = {};
@@ -527,20 +586,9 @@ new FetchInterceptor(async (response) => {
         const userInfoListResponse = messageDecoders['UserInfoListResponse'](decodedData);
         const userInfoList = userInfoListResponse.userInfoListWrapperWrapper?.userInfoListWrapper?.userInfoList || [];
         console.log('userInfoList', userInfoList);
-      
-        for (const user of userInfoList) {
-          userMap.set(user.deviceId, {
-            id: user.deviceId,
-            name: user.name,
-            fullName: user.fullName,
-            image: user.profile
-          });
+        if (userInfoList.length > 0) {
+            userManager.newUsersListSynced(userInfoList);
         }
-
-        ws.sendJson({
-            type: 'UserMapUpdate',
-            userMap: Object.fromEntries(userMap)
-        });
     }
 });
 
