@@ -483,6 +483,38 @@ class MeetingSpaceCollectionResponse {
 
 // Message type definitions
 const messageTypes = [
+      {
+        name: 'CollectionEvent',
+        fields: [
+            { name: 'body', fieldNumber: 1, type: 'message', messageType: 'CollectionEventBody' }
+        ]
+    },
+    {
+        name: 'CollectionEventBody',
+        fields: [
+            { name: 'userInfoListWrapperAndChatWrapperWrapper', fieldNumber: 2, type: 'message', messageType: 'UserInfoListWrapperAndChatWrapperWrapper' }
+        ]
+    },
+    {
+        name: 'UserInfoListWrapperAndChatWrapperWrapper',
+        fields: [
+            { name: 'userInfoListWrapperAndChatWrapper', fieldNumber: 13, type: 'message', messageType: 'UserInfoListWrapperAndChatWrapper' }
+        ]
+    },
+    {
+        name: 'UserInfoListWrapperAndChatWrapper',
+        fields: [
+            { name: 'userInfoListWrapper', fieldNumber: 1, type: 'message', messageType: 'UserInfoListWrapper' },
+            // { name: 'chat', fieldNumber: 4, type: 'message', messageType: 'ChatMessage', repeated: true }
+        ]
+    },
+    // Existing message types
+    {
+        name: 'UserInfoListResponse',
+        fields: [
+            { name: 'userInfoListWrapperWrapper', fieldNumber: 2, type: 'message', messageType: 'UserInfoListWrapperWrapper' }
+        ]
+    },
     {
         name: 'UserInfoListResponse',
         fields: [
@@ -592,23 +624,20 @@ new FetchInterceptor(async (response) => {
     }
 });
 
-const handleCollectionMessage = (event) => {
-    console.log('raw unzipped data', pako.inflate(new Uint8Array(event.data)));
-    const unzippedData = protobuf.Reader.create(pako.inflate(new Uint8Array(event.data)));
-    const message = CollectionMessage.decode(unzippedData);
-    console.log('decodedmessage', message);
-    if (message?.body?.wrapper?.wrapper.wrapper?.userDetails) {
-        const users = message.body.wrapper.wrapper.wrapper.userDetails;
-        console.log('users', users);
-        for (const user of users) {
-            userMap.set(user.deviceId, {
-                id: user.deviceId,
-                name: user.name,
-                fullName: user.fullName,
-                image: user.profile
-            });
-        }
-    }
+const handleCollectionEvent = (event) => {
+  const decodedData = pako.inflate(new Uint8Array(event.data));
+
+  const collectionEvent = messageDecoders['CollectionEvent'](decodedData);
+  const userInfoList = collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper.userInfoListWrapperAndChatWrapper.userInfoListWrapper?.userInfoList || [];
+  console.log('userInfoList in collection event', userInfoList);
+  // This event is triggered when a single user joins (or leaves) the meeting
+  // generally this array only contains a single user
+  // we can't tell whether the event is a join or leave event, so we'll assume it's a join
+  // if it's a leave, then we'll pick it up from the periodic call to syncMeetingSpaceCollections
+  // so there will be a lag of roughly a minute for leave events
+  for (const user of userInfoList) {
+    userManager.singleUserSynced(user);
+  }
 };
 
 new RTCInterceptor({
@@ -619,7 +648,7 @@ new RTCInterceptor({
             if (event.channel.label === "collections") {               
                 event.channel.addEventListener("message", (messageEvent) => {
                     console.log('collectionsevent', messageEvent)
-                    handleCollectionMessage(messageEvent);
+                    handleCollectionEvent(messageEvent);
                 });
             }
         });
