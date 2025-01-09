@@ -367,7 +367,9 @@ const userMap = new Map();
 new FetchInterceptor(async (response) => {
     if (response.url === syncMeetingSpaceCollectionsUrl) {
         const responseText = await response.text();
+        console.log('responseText44', responseText);
         const decodedData = base64ToUint8Array(responseText);
+        console.log('decodedData44', decodedData);
         const meetingSpace = MeetingSpaceCollectionResponse.decode(decodedData);
         if (meetingSpace.spaces?.wrapper?.userDetails) {
           for (const user of meetingSpace.spaces.wrapper.userDetails) {
@@ -384,6 +386,7 @@ new FetchInterceptor(async (response) => {
 });
 
 const handleCollectionMessage = (event) => {
+    console.log('raw unzipped data', pako.inflate(new Uint8Array(event.data)));
     const unzippedData = protobuf.Reader.create(pako.inflate(new Uint8Array(event.data)));
     const message = CollectionMessage.decode(unzippedData);
     console.log('decodedmessage', message);
