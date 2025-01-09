@@ -14,7 +14,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 
 async def join_meet():
-    meet_link = os.getenv("GMEET_LINK", "https://meet.google.com/ijm-gzad-mie")
+    meet_link = os.getenv("GMEET_LINK", "https://meet.google.com/mvp-pmnh-mfk")
     print(f"start recorder for {meet_link}")
 
     options = uc.ChromeOptions()
@@ -37,7 +37,7 @@ async def join_meet():
 
     # Define the CDN libraries needed
     CDN_LIBRARIES = [
-        'https://cdnjs.cloudflare.com/ajax/libs/protobufjs/7.4.0/light/protobuf.min.js',
+        'https://cdnjs.cloudflare.com/ajax/libs/protobufjs/7.4.0/protobuf.min.js',
     ]
 
     # Download all library code

@@ -353,6 +353,90 @@ class MeetingSpaceCollectionResponse {
     }
 }
 
+// Message type definitions
+const messageTypes = [
+    {
+        name: 'UserInfoListResponse',
+        fields: [
+            { name: 'userInfoListWrapperWrapper', fieldNumber: 2, type: 'message', messageType: 'UserInfoListWrapperWrapper' }
+        ]
+    },
+    {
+        name: 'UserInfoListWrapperWrapper',
+        fields: [
+            { name: 'userInfoListWrapper', fieldNumber: 2, type: 'message', messageType: 'UserInfoListWrapper' }
+        ]
+    },
+    {
+        name: 'UserInfoListWrapper',
+        fields: [
+            { name: 'userInfoList', fieldNumber: 2, type: 'message', messageType: 'UserInfoList', repeated: true }
+        ]
+    },
+    {
+        name: 'UserInfoList',
+        fields: [
+            { name: 'deviceId', fieldNumber: 1, type: 'string' },
+            { name: 'fullName', fieldNumber: 2, type: 'string' },
+            { name: 'profilePicture', fieldNumber: 3, type: 'string' },
+            { name: 'firstName', fieldNumber: 29, type: 'string' }
+        ]
+    }
+];
+
+// Generic message decoder factory
+function createMessageDecoder(messageType) {
+    return function decode(reader, length) {
+        if (!(reader instanceof protobuf.Reader)) {
+            reader = protobuf.Reader.create(reader);
+        }
+
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = {};
+
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            const fieldNumber = tag >>> 3;
+            
+            const field = messageType.fields.find(f => f.fieldNumber === fieldNumber);
+            if (!field) {
+                reader.skipType(tag & 7);
+                continue;
+            }
+
+            let value;
+            switch (field.type) {
+                case 'string':
+                    value = reader.string();
+                    break;
+                case 'message':
+                    value = messageDecoders[field.messageType](reader, reader.uint32());
+                    break;
+                default:
+                    reader.skipType(tag & 7);
+                    continue;
+            }
+
+            if (field.repeated) {
+                if (!message[field.name]) {
+                    message[field.name] = [];
+                }
+                message[field.name].push(value);
+            } else {
+                message[field.name] = value;
+            }
+        }
+
+        return message;
+    };
+}
+
+// Create decoders for all message types
+const messageDecoders = {};
+messageTypes.forEach(type => {
+    messageDecoders[type.name] = createMessageDecoder(type);
+});
+
 function base64ToUint8Array(base64) {
     const binaryString = atob(base64);
     const bytes = new Uint8Array(binaryString.length);
@@ -367,21 +451,19 @@ const userMap = new Map();
 new FetchInterceptor(async (response) => {
     if (response.url === syncMeetingSpaceCollectionsUrl) {
         const responseText = await response.text();
-        console.log('responseText44', responseText);
         const decodedData = base64ToUint8Array(responseText);
-        console.log('decodedData44', decodedData);
-        const meetingSpace = MeetingSpaceCollectionResponse.decode(decodedData);
-        if (meetingSpace.spaces?.wrapper?.userDetails) {
-          for (const user of meetingSpace.spaces.wrapper.userDetails) {
-            userMap.set(user.deviceId, {
-              id: user.deviceId,
-              name: user.name,
-              fullName: user.fullName,
-              image: user.profile
-            });
-          }
-          console.log('userMap', userMap);
-        }   
+        const userInfoListResponse = messageDecoders['UserInfoListResponse'](decodedData);
+        const userInfoList = userInfoListResponse.userInfoListWrapperWrapper?.userInfoListWrapper?.userInfoList || [];
+        console.log('userInfoList', userInfoList);
+      
+        for (const user of userInfoList) {
+          userMap.set(user.deviceId, {
+            id: user.deviceId,
+            name: user.name,
+            fullName: user.fullName,
+            image: user.profile
+          });
+        }
     }
 });
 
