@@ -5,6 +5,7 @@ import click
 import datetime
 import requests
 import json
+import threading
 
 from time import sleep
 
@@ -12,8 +13,31 @@ import undetected_chromedriver as uc
 
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
+import websockets
+from websockets.sync.server import serve
+def handle_websocket(websocket):
+    try:
+        for message in websocket:
+            print("received via websocket:", message)
+            # You can add message handling logic here
+            # websocket.send("response") # Example of sending a response
+    except Exception as e:
+        print(f"Websocket error: {e}")
+
+def run_websocket_server():
+    # Create a new event loop for this thread
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    with serve(handle_websocket, "localhost", 8765) as server:
+        print("Websocket server started on ws://localhost:8765")
+        server.serve_forever()
 
 async def join_meet():
+    # Start websocket server in a separate thread
+    websocket_thread = threading.Thread(target=run_websocket_server, daemon=True)
+    websocket_thread.start()
+    
     meet_link = os.getenv("GMEET_LINK", "https://meet.google.com/mvp-pmnh-mfk")
     print(f"start recorder for {meet_link}")
 

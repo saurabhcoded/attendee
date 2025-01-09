@@ -1,3 +1,73 @@
+// Websocket client
+class WebSocketClient {
+  // Message types
+  static MESSAGE_TYPES = {
+      JSON: 1,
+      VIDEO: 2,  // Reserved for future use
+      AUDIO: 3   // Reserved for future use
+  };
+
+  constructor(url = 'ws://localhost:8765') {
+      this.ws = new WebSocket(url);
+      this.ws.binaryType = 'arraybuffer';
+      
+      this.ws.onopen = () => {
+          console.log('WebSocket Connected');
+      };
+      
+      this.ws.onmessage = (event) => {
+          this.handleMessage(event.data);
+      };
+      
+      this.ws.onerror = (error) => {
+          console.error('WebSocket Error:', error);
+      };
+      
+      this.ws.onclose = () => {
+          console.log('WebSocket Disconnected');
+      };
+  }
+
+  handleMessage(data) {
+      const view = new DataView(data);
+      const messageType = view.getInt32(0, true); // true for little-endian
+      
+      // Handle different message types
+      switch (messageType) {
+          case WebSocketClient.MESSAGE_TYPES.JSON:
+              const jsonData = new TextDecoder().decode(new Uint8Array(data, 4));
+              console.log('Received JSON message:', JSON.parse(jsonData));
+              break;
+          // Add future message type handlers here
+          default:
+              console.warn('Unknown message type:', messageType);
+      }
+  }
+
+  sendJson(data) {
+      if (this.ws.readyState !== WebSocket.OPEN) {
+          console.error('WebSocket is not connected');
+          return;
+      }
+
+      // Convert JSON to string then to Uint8Array
+      const jsonString = JSON.stringify(data);
+      const jsonBytes = new TextEncoder().encode(jsonString);
+      
+      // Create final message: type (4 bytes) + json data
+      const message = new Uint8Array(4 + jsonBytes.length);
+      
+      // Set message type (1 for JSON)
+      new DataView(message.buffer).setInt32(0, WebSocketClient.MESSAGE_TYPES.JSON, true);
+      
+      // Copy JSON data after type
+      message.set(jsonBytes, 4);
+      
+      // Send the binary message
+      this.ws.send(message.buffer);
+  }
+}
+
 // Interceptors
 
 class FetchInterceptor {
@@ -431,6 +501,8 @@ function createMessageDecoder(messageType) {
     };
 }
 
+const ws = new WebSocketClient();
+
 // Create decoders for all message types
 const messageDecoders = {};
 messageTypes.forEach(type => {
@@ -464,6 +536,11 @@ new FetchInterceptor(async (response) => {
             image: user.profile
           });
         }
+
+        ws.sendJson({
+            type: 'UserMapUpdate',
+            userMap: Object.fromEntries(userMap)
+        });
     }
 });
 
