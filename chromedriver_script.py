@@ -8,6 +8,7 @@ import json
 import threading
 import wave
 import numpy as np
+import cv2
 
 from time import sleep
 
@@ -23,6 +24,12 @@ from selenium.webdriver.support import expected_conditions as EC
 def handle_websocket(websocket):
     audio_file = None
     audio_format = None
+    video_format = None
+    frame_counter = 0  # Add frame counter
+    output_dir = 'frames'  # Add output directory
+    
+    # Create frames directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
     
     try:
         for message in websocket:
@@ -34,27 +41,62 @@ def handle_websocket(websocket):
                 print("Received JSON message:", json_data)
                 
                 # Handle audio format information
-                if isinstance(json_data, dict) and json_data.get('type') == 'AudioFormatUpdate':
-                    audio_format = json_data['format']
-                    # Create a new WAV file
-                    audio_file = wave.open('recorded_audio.wav', 'wb')
-                    audio_file.setnchannels(audio_format['numberOfChannels'])
-                    audio_file.setsampwidth(4)  # 4 bytes for float32
-                    audio_file.setframerate(audio_format['sampleRate']/2)
+                if isinstance(json_data, dict):
+                    if json_data.get('type') == 'AudioFormatUpdate':
+                        audio_format = json_data['format']
+                        # Create a new WAV file
+                        audio_file = wave.open('recorded_audio.wav', 'wb')
+                        audio_file.setnchannels(audio_format['numberOfChannels'])
+                        audio_file.setsampwidth(4)  # 4 bytes for float32
+                        audio_file.setframerate(audio_format['sampleRate']/2)
                     
-            elif message_type == 3:  # AUDIO
-                if audio_file is not None and len(message) > 4:
+                    elif json_data.get('type') == 'VideoFormatUpdate':
+                        video_format = json_data['format']
+                        # Remove video file creation since we're saving individual frames
+                    
+            elif message_type == 2:  # VIDEO
+                if video_format is not None and len(message) > 12:
                     # Bytes 4-12 contain the timestamp
                     timestamp = int.from_bytes(message[4:12], byteorder='little')
-                    # print("timestamp", timestamp)
+                    
+                    # Convert I420 format to BGR for OpenCV
+                    video_data = np.frombuffer(message[12:], dtype=np.uint8)
+                    
+                    # Reshape the data based on the format
+                    height = video_format['height']
+                    width = video_format['width']
+                    
+                    # Calculate sizes for Y, U, and V planes
+                    y_size = width * height
+                    uv_size = (width // 2) * (height // 2)
+                    
+                    # Extract Y, U, and V planes
+                    y_plane = video_data[:y_size].reshape(height, width)
+                    u_plane = video_data[y_size:y_size + uv_size].reshape(height // 2, width // 2)
+                    v_plane = video_data[y_size + uv_size:y_size + 2 * uv_size].reshape(height // 2, width // 2)
+                    
+                    # Upscale U and V planes
+                    u_plane = cv2.resize(u_plane, (width, height))
+                    v_plane = cv2.resize(v_plane, (width, height))
+                    
+                    # Stack planes and convert to BGR
+                    yuv = cv2.merge([y_plane, u_plane, v_plane])
+                    bgr = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR)
+                    
+                    # Instead of writing to video file, save as image
+                    frame_path = os.path.join(output_dir, f'frame_{frame_counter:06d}.png')
+                    cv2.imwrite(frame_path, bgr)
+                    frame_counter += 1
+                    
+            elif message_type == 3:  # AUDIO
+                if audio_file is not None and len(message) > 12:
+                    # Bytes 4-12 contain the timestamp
+                    timestamp = int.from_bytes(message[4:12], byteorder='little')
                     # Convert the float32 audio data to int16 for WAV file
                     audio_data = np.frombuffer(message[12:], dtype=np.float32)
                     audio_data_int16 = (audio_data * 32767).astype(np.int16)
-                    #print("audio_data_int16", audio_data_int16)
-                    #print("audio_data", audio_data)
                     audio_file.writeframes(audio_data_int16.tobytes())
-            # ... rest of the message handling ...
-            
+                    
     except Exception as e:
         print(f"Websocket error: {e}")
     finally:
@@ -66,7 +108,8 @@ def run_websocket_server():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
-    with serve(handle_websocket, "localhost", 8765) as server:
+    # Increase max_size parameter to handle larger video frames (set to 10MB)
+    with serve(handle_websocket, "localhost", 8765, max_size=10_000_000) as server:
         print("Websocket server started on ws://localhost:8765")
         server.serve_forever()
 

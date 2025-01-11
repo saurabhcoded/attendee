@@ -121,8 +121,6 @@ class WebSocketClient {
               console.warn('Unknown message type:', messageType);
       }
   }
-
-
   
   sendJson(data) {
       if (this.ws.readyState !== WebSocket.OPEN) {
@@ -152,6 +150,8 @@ class WebSocketClient {
       }
   }
 
+  
+
   sendAudio(timestamp, audioData) {
       if (this.ws.readyState !== WebSocket.OPEN) {
           console.error('WebSocket is not connected');
@@ -176,6 +176,33 @@ class WebSocketClient {
           this.ws.send(message.buffer);
       } catch (error) {
           console.error('Error sending WebSocket audio message:', error);
+      }
+  }
+
+  sendVideo(timestamp, videoData) {
+      if (this.ws.readyState !== WebSocket.OPEN) {
+          console.error('WebSocket is not connected');
+          return;
+      }
+
+      try {
+          // Create final message: type (4 bytes) + timestamp (8 bytes) + video data
+          const message = new Uint8Array(4 + 8 + videoData.buffer.byteLength);
+          const dataView = new DataView(message.buffer);
+          
+          // Set message type (2 for VIDEO)
+          dataView.setInt32(0, WebSocketClient.MESSAGE_TYPES.VIDEO, true);
+          
+          // Set timestamp as BigInt64
+          dataView.setBigInt64(4, BigInt(timestamp), true);
+
+          // Copy video data after type and timestamp
+          message.set(new Uint8Array(videoData.buffer), 12);
+          
+          // Send the binary message
+          this.ws.send(message.buffer);
+      } catch (error) {
+          console.error('Error sending WebSocket video message:', error);
       }
   }
 }
@@ -721,6 +748,102 @@ const handleCaptionEvent = (event) => {
   captionManager.singleCaptionSynced(caption);
 }
 
+const handleVideoTrack = async (event) => {
+  let lastVideoFormat = null;  // Track last seen format
+  
+  try {
+    // Create processor to get raw frames
+    const processor = new MediaStreamTrackProcessor({ track: event.track });
+    const generator = new MediaStreamTrackGenerator({ kind: 'video' });
+    
+    // Get readable stream of video frames
+    const readable = processor.readable;
+    const writable = generator.writable;
+
+    // Transform stream to intercept frames
+    const transformStream = new TransformStream({
+        async transform(frame, controller) {
+            if (!frame) {
+                return;
+            }
+
+            try {
+                // Check if controller is still active
+                if (controller.desiredSize === null) {
+                    frame.close();
+                    return;
+                }
+
+                // Copy the frame to get access to raw data
+                const rawFrame = new VideoFrame(frame, {
+                    format: 'I420'
+                });
+
+                // Get the raw data from the frame
+                const data = new Uint8Array(rawFrame.allocationSize());
+                rawFrame.copyTo(data);
+
+                // Check if video format has changed
+                const currentFormat = {
+                    width: frame.displayWidth,
+                    height: frame.displayHeight,
+                    format: rawFrame.format,
+                    duration: frame.duration,
+                    colorSpace: frame.colorSpace,
+                    codedWidth: frame.codedWidth,
+                    codedHeight: frame.codedHeight
+                };
+
+                // If format is different from last seen format, send update
+                if (!lastVideoFormat || 
+                    JSON.stringify(currentFormat) !== JSON.stringify(lastVideoFormat)) {
+                    lastVideoFormat = currentFormat;
+                    ws.sendJson({
+                        type: 'VideoFormatUpdate',
+                        format: currentFormat
+                    });
+                }
+
+                // Send video data through websocket
+                ws.sendVideo(frame.timestamp, data);
+
+                rawFrame.close();
+                controller.enqueue(frame);
+            } catch (error) {
+                console.error('Error processing frame:', error);
+                frame.close();
+            }
+        },
+        flush() {
+            console.log('Transform stream flush called');
+        }
+    });
+
+    // Create an abort controller for cleanup
+    const abortController = new AbortController();
+
+    try {
+        // Connect the streams
+        await readable
+            .pipeThrough(transformStream)
+            .pipeTo(writable, {
+                signal: abortController.signal
+            })
+            .catch(error => {
+                if (error.name !== 'AbortError') {
+                    console.error('Pipeline error:', error);
+                }
+            });
+    } catch (error) {
+        console.error('Stream pipeline error:', error);
+        abortController.abort();
+    }
+
+  } catch (error) {
+      console.error('Error setting up video interceptor:', error);
+  }
+};
+
 const handleAudioTrack = async (event) => {
   let lastAudioFormat = null;  // Track last seen format
   
@@ -842,6 +965,9 @@ new RTCInterceptor({
             console.log('track', event);
             if (event.track.kind === 'audio') {
                 handleAudioTrack(event);
+            }
+            if (event.track.kind === 'video') {
+                handleVideoTrack(event);
             }
         });
     },
