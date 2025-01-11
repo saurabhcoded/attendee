@@ -692,16 +692,107 @@ const handleCaptionEvent = (event) => {
   captionManager.singleCaptionSynced(caption);
 }
 
+const handleAudioTrack = async (event) => {
+  try {
+    // Create processor to get raw frames
+    const processor = new MediaStreamTrackProcessor({ track: event.track });
+    const generator = new MediaStreamTrackGenerator({ kind: 'audio' });
+    
+    // Get readable stream of audio frames
+    const readable = processor.readable;
+    const writable = generator.writable;
+
+    // Transform stream to intercept frames
+    const transformStream = new TransformStream({
+        async transform(frame, controller) {
+            if (!frame) {
+                return;
+            }
+
+            try {
+                // Check if controller is still active
+                if (controller.desiredSize === null) {
+                    frame.close();
+                    return;
+                }
+
+                // Copy the audio data
+                const numChannels = frame.numberOfChannels;
+                const numSamples = frame.numberOfFrames;
+                const audioData = new Float32Array(numChannels * numSamples);
+                
+                // Copy data from each channel
+                for (let channel = 0; channel < numChannels; channel++) {
+                    frame.copyTo(audioData.subarray(channel * numSamples, (channel + 1) * numSamples), 
+                              { planeIndex: channel });
+                }
+                console.log('rawframe', frame)
+
+                // Log frame info and first few samples
+                console.log('Audio frame:', {
+                    timestamp: frame.timestamp,
+                    numberOfChannels: frame.numberOfChannels,
+                    numberOfFrames: frame.numberOfFrames,
+                    sampleRate: frame.sampleRate,
+                    format: frame.format,
+                    duration: frame.duration,
+                    sampleData: Array.from(audioData.slice(0, 10)), // First 10 samples
+                });
+
+                // Pass through the original frame
+                controller.enqueue(frame);
+            } catch (error) {
+                console.error('Error processing frame:', error);
+                frame.close();
+            }
+        },
+        flush() {
+            console.log('Transform stream flush called');
+        }
+    });
+
+    // Create an abort controller for cleanup
+    const abortController = new AbortController();
+
+    try {
+        // Connect the streams
+        await readable
+            .pipeThrough(transformStream)
+            .pipeTo(writable, {
+                signal: abortController.signal
+            })
+            .catch(error => {
+                if (error.name !== 'AbortError') {
+                    console.error('Pipeline error:', error);
+                }
+            });
+    } catch (error) {
+        console.error('Stream pipeline error:', error);
+        abortController.abort();
+    }
+
+  } catch (error) {
+      console.error('Error setting up audio interceptor:', error);
+  }
+};
+
 new RTCInterceptor({
     onPeerConnectionCreate: (peerConnection) => {
         console.log('New RTCPeerConnection created:', peerConnection);
         peerConnection.addEventListener('datachannel', (event) => {
-            console.log('datachannel', event)
+            console.log('datachannel', event);
             if (event.channel.label === "collections") {               
                 event.channel.addEventListener("message", (messageEvent) => {
-                    console.log('collectionsevent', messageEvent)
+                    console.log('collectionsevent', messageEvent);
                     handleCollectionEvent(messageEvent);
                 });
+            }
+        });
+
+        peerConnection.addEventListener('track', (event) => {
+            console.log('track', event);
+            if (event.track.kind === 'audio') {
+                handleAudioTrack(event);
             }
         });
     },
@@ -718,7 +809,6 @@ new RTCInterceptor({
 
        if (dataChannel.label === 'captions') {
             dataChannel.addEventListener("message", (captionEvent) => {
-                console.log('captionEventzzz', captionEvent);
                 handleCaptionEvent(captionEvent);
             });
         }
