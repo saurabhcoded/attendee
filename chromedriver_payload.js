@@ -122,6 +122,8 @@ class WebSocketClient {
       }
   }
 
+
+  
   sendJson(data) {
       if (this.ws.readyState !== WebSocket.OPEN) {
           console.error('WebSocket is not connected');
@@ -147,6 +149,33 @@ class WebSocketClient {
       } catch (error) {
           console.error('Error sending WebSocket message:', error);
           console.error('Message data:', data);
+      }
+  }
+
+  sendAudio(timestamp, audioData) {
+      if (this.ws.readyState !== WebSocket.OPEN) {
+          console.error('WebSocket is not connected');
+          return;
+      }
+
+      try {
+          // Create final message: type (4 bytes) + timestamp (8 bytes) + audio data
+          const message = new Uint8Array(4 + 8 + audioData.buffer.byteLength);
+          const dataView = new DataView(message.buffer);
+          
+          // Set message type (3 for AUDIO)
+          dataView.setInt32(0, WebSocketClient.MESSAGE_TYPES.AUDIO, true);
+          
+          // Set timestamp as BigInt64
+          dataView.setBigInt64(4, BigInt(timestamp), true);
+
+          // Copy audio data after type and timestamp
+          message.set(new Uint8Array(audioData.buffer), 12);
+          
+          // Send the binary message
+          this.ws.send(message.buffer);
+      } catch (error) {
+          console.error('Error sending WebSocket audio message:', error);
       }
   }
 }
@@ -693,6 +722,8 @@ const handleCaptionEvent = (event) => {
 }
 
 const handleAudioTrack = async (event) => {
+  let lastAudioFormat = null;  // Track last seen format
+  
   try {
     // Create processor to get raw frames
     const processor = new MediaStreamTrackProcessor({ track: event.track });
@@ -726,18 +757,36 @@ const handleAudioTrack = async (event) => {
                     frame.copyTo(audioData.subarray(channel * numSamples, (channel + 1) * numSamples), 
                               { planeIndex: channel });
                 }
-                console.log('rawframe', frame)
 
-                // Log frame info and first few samples
-                console.log('Audio frame:', {
-                    timestamp: frame.timestamp,
+                // console.log('frame', frame)
+                // console.log('audioData', audioData)
+
+                // Check if audio format has changed
+                const currentFormat = {
                     numberOfChannels: frame.numberOfChannels,
                     numberOfFrames: frame.numberOfFrames,
                     sampleRate: frame.sampleRate,
                     format: frame.format,
-                    duration: frame.duration,
-                    sampleData: Array.from(audioData.slice(0, 10)), // First 10 samples
-                });
+                    duration: frame.duration
+                };
+
+                // If format is different from last seen format, send update
+                if (!lastAudioFormat || 
+                    JSON.stringify(currentFormat) !== JSON.stringify(lastAudioFormat)) {
+                    lastAudioFormat = currentFormat;
+                    ws.sendJson({
+                        type: 'AudioFormatUpdate',
+                        format: currentFormat
+                    });
+                }
+
+                // If the audioData buffer is all zeros, then we don't want to send it
+                if (audioData.every(value => value === 0)) {
+                    return;
+                }
+
+                // Send audio data through websocket
+                ws.sendAudio(frame.timestamp, audioData);
 
                 // Pass through the original frame
                 controller.enqueue(frame);

@@ -6,6 +6,8 @@ import datetime
 import requests
 import json
 import threading
+import wave
+import numpy as np
 
 from time import sleep
 
@@ -19,13 +21,45 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 def handle_websocket(websocket):
+    audio_file = None
+    audio_format = None
+    
     try:
         for message in websocket:
-            print("received via websocket:", message)
-            # You can add message handling logic here
-            # websocket.send("response") # Example of sending a response
+            # Get first 4 bytes as message type
+            message_type = int.from_bytes(message[:4], byteorder='little')
+            
+            if message_type == 1:  # JSON
+                json_data = json.loads(message[4:].decode('utf-8'))
+                print("Received JSON message:", json_data)
+                
+                # Handle audio format information
+                if isinstance(json_data, dict) and json_data.get('type') == 'AudioFormatUpdate':
+                    audio_format = json_data['format']
+                    # Create a new WAV file
+                    audio_file = wave.open('recorded_audio.wav', 'wb')
+                    audio_file.setnchannels(audio_format['numberOfChannels'])
+                    audio_file.setsampwidth(4)  # 4 bytes for float32
+                    audio_file.setframerate(audio_format['sampleRate']/2)
+                    
+            elif message_type == 3:  # AUDIO
+                if audio_file is not None and len(message) > 4:
+                    # Bytes 4-12 contain the timestamp
+                    timestamp = int.from_bytes(message[4:12], byteorder='little')
+                    # print("timestamp", timestamp)
+                    # Convert the float32 audio data to int16 for WAV file
+                    audio_data = np.frombuffer(message[12:], dtype=np.float32)
+                    audio_data_int16 = (audio_data * 32767).astype(np.int16)
+                    #print("audio_data_int16", audio_data_int16)
+                    #print("audio_data", audio_data)
+                    audio_file.writeframes(audio_data_int16.tobytes())
+            # ... rest of the message handling ...
+            
     except Exception as e:
         print(f"Websocket error: {e}")
+    finally:
+        if audio_file:
+            audio_file.close()
 
 def run_websocket_server():
     # Create a new event loop for this thread
