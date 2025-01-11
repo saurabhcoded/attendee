@@ -154,7 +154,7 @@ class WebSocketClient {
 
   sendAudio(timestamp, audioData) {
       if (this.ws.readyState !== WebSocket.OPEN) {
-          console.error('WebSocket is not connected');
+          console.error('WebSocket is not connected for audio send', this.ws.readyState);
           return;
       }
 
@@ -181,7 +181,7 @@ class WebSocketClient {
 
   sendVideo(timestamp, trackId, width, height, videoData) {
       if (this.ws.readyState !== WebSocket.OPEN) {
-          console.error('WebSocket is not connected');
+          console.error('WebSocket is not connected for video send', this.ws.readyState);
           return;
       }
 
@@ -592,6 +592,7 @@ const messageTypes = [
     {
         name: 'UserInfoListWrapperAndChatWrapperWrapper',
         fields: [
+            { name: 'deviceInfoWrapper', fieldNumber: 3, type: 'message', messageType: 'DeviceInfoWrapper' },
             { name: 'userInfoListWrapperAndChatWrapper', fieldNumber: 13, type: 'message', messageType: 'UserInfoListWrapperAndChatWrapper' }
         ]
     },
@@ -600,6 +601,26 @@ const messageTypes = [
         fields: [
             { name: 'userInfoListWrapper', fieldNumber: 1, type: 'message', messageType: 'UserInfoListWrapper' },
             // { name: 'chat', fieldNumber: 4, type: 'message', messageType: 'ChatMessage', repeated: true }
+        ]
+    },
+    {
+        name: 'DeviceInfoWrapper',
+        fields: [
+            { name: 'deviceOutputInfo', fieldNumber: 2, type: 'message', messageType: 'DeviceOutputInfo', repeated: true }
+        ]
+    },
+    {
+        name: 'DeviceOutputInfo',
+        fields: [
+            { name: 'deviceOutputType', fieldNumber: 2, type: 'varint' }, // Speculating that 1 = audio, 2 = camera
+            { name: 'deviceId', fieldNumber: 6, type: 'string' },
+            { name: 'deviceOutputStatus', fieldNumber: 10, type: 'message', messageType: 'DeviceOutputStatus' }
+        ]
+    },
+    {
+        name: 'DeviceOutputStatus',
+        fields: [
+            { name: 'disabled', fieldNumber: 1, type: 'varint' }
         ]
     },
     // Existing message types
@@ -618,7 +639,14 @@ const messageTypes = [
     {
         name: 'UserInfoListWrapperWrapper',
         fields: [
+            { name: 'userEventInfo', fieldNumber: 1, type: 'message', messageType: 'EventInfo' },
             { name: 'userInfoListWrapper', fieldNumber: 2, type: 'message', messageType: 'UserInfoListWrapper' }
+        ]
+    },
+    {
+        name: 'EventInfo',
+        fields: [
+            { name: 'eventType', fieldNumber: 1, type: 'varint' } // 44 = user joined, 45 = user left
         ]
     },
     {
@@ -633,7 +661,8 @@ const messageTypes = [
             { name: 'deviceId', fieldNumber: 1, type: 'string' },
             { name: 'fullName', fieldNumber: 2, type: 'string' },
             { name: 'profilePicture', fieldNumber: 3, type: 'string' },
-            { name: 'displayName', fieldNumber: 29, type: 'string' }
+            { name: 'displayName', fieldNumber: 29, type: 'string' },
+            { name: 'parentDeviceId', fieldNumber: 21, type: 'string' } // if this is present, then this is a screenshare device. The parentDevice is the person that is sharing
         ]
     },
     {
@@ -681,6 +710,9 @@ function createMessageDecoder(messageType) {
                     break;
                 case 'int64':
                     value = reader.int64();
+                    break;
+                case 'varint':
+                    value = reader.uint32();
                     break;
                 case 'message':
                     value = messageDecoders[field.messageType](reader, reader.uint32());
@@ -740,10 +772,17 @@ new FetchInterceptor(async (response) => {
 
 const handleCollectionEvent = (event) => {
   const decodedData = pako.inflate(new Uint8Array(event.data));
+  //console.log(' handleCollectionEventdecodedData', decodedData);
+  // Convert decoded data to base64
+  const base64Data = btoa(String.fromCharCode.apply(null, decodedData));
+  console.log('Decoded collection event data (base64):', base64Data);
 
   const collectionEvent = messageDecoders['CollectionEvent'](decodedData);
+  console.log('deviceOutputInfo', JSON.stringify(collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper?.deviceInfoWrapper?.deviceOutputInfo));
+  console.log('usermap', userMap.allUsersMap);
+  console.log('userInfoList And Event', collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper.userInfoListWrapperAndChatWrapper.userInfoListWrapper)
   const userInfoList = collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper.userInfoListWrapperAndChatWrapper.userInfoListWrapper?.userInfoList || [];
-  console.log('userInfoList in collection event', userInfoList);
+  //console.log('userInfoList in collection event', userInfoList);
   // This event is triggered when a single user joins (or leaves) the meeting
   // generally this array only contains a single user
   // we can't tell whether the event is a join or leave event, so we'll assume it's a join
@@ -761,6 +800,7 @@ const handleCaptionEvent = (event) => {
   captionManager.singleCaptionSynced(caption);
 }
 
+let lastSeenTrackId = null;
 const handleVideoTrack = async (event) => {  
   try {
     // Create processor to get raw frames
@@ -771,11 +811,18 @@ const handleVideoTrack = async (event) => {
     const readable = processor.readable;
     const writable = generator.writable;
 
+    lastSeenTrackId = event.track.id;
+    console.log('lastSeenTrackId', lastSeenTrackId);
+
     // Transform stream to intercept frames
     const transformStream = new TransformStream({
         async transform(frame, controller) {
             if (!frame) {
                 return;
+            }
+
+            if (lastSeenTrackId !== event.track.id) {
+              return;
             }
 
             try {
@@ -957,19 +1004,52 @@ new RTCInterceptor({
             console.log('datachannel', event);
             if (event.channel.label === "collections") {               
                 event.channel.addEventListener("message", (messageEvent) => {
-                    console.log('collectionsevent', messageEvent);
+                    console.log('RAWcollectionsevent', messageEvent);
                     handleCollectionEvent(messageEvent);
                 });
             }
         });
 
         peerConnection.addEventListener('track', (event) => {
-            console.log('track', event);
+            // Log the track and its associated streams
+            console.log('New track:', {
+                trackId: event.track.id,
+                streamIds: event.streams.map(stream => stream.id),
+                // Get any msid information
+                transceiver: event.transceiver,
+                // Get the RTP parameters which might contain stream IDs
+                rtpParameters: event.transceiver?.sender.getParameters()
+            });
             if (event.track.kind === 'audio') {
                 handleAudioTrack(event);
             }
             if (event.track.kind === 'video') {
                 handleVideoTrack(event);
+            }
+        });
+
+        // Log the signaling state changes
+        peerConnection.addEventListener('signalingstatechange', () => {
+            console.log('Signaling State:', peerConnection.signalingState);
+        });
+
+        // Log the SDP being exchanged
+        const originalSetLocalDescription = peerConnection.setLocalDescription;
+        peerConnection.setLocalDescription = function(description) {
+            console.log('Local SDP:', description);
+            return originalSetLocalDescription.apply(this, arguments);
+        };
+
+        const originalSetRemoteDescription = peerConnection.setRemoteDescription;
+        peerConnection.setRemoteDescription = function(description) {
+            console.log('Remote SDP:', description);
+            return originalSetRemoteDescription.apply(this, arguments);
+        };
+
+        // Log ICE candidates
+        peerConnection.addEventListener('icecandidate', (event) => {
+            if (event.candidate) {
+                console.log('ICE Candidate:', event.candidate);
             }
         });
     },
