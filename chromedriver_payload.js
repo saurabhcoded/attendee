@@ -613,6 +613,7 @@ const messageTypes = [
         name: 'DeviceOutputInfo',
         fields: [
             { name: 'deviceOutputType', fieldNumber: 2, type: 'varint' }, // Speculating that 1 = audio, 2 = camera
+            { name: 'streamId', fieldNumber: 4, type: 'string' },
             { name: 'deviceId', fieldNumber: 6, type: 'string' },
             { name: 'deviceOutputStatus', fieldNumber: 10, type: 'message', messageType: 'DeviceOutputStatus' }
         ]
