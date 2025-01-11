@@ -1,9 +1,29 @@
+// Caption manager
+class CaptionManager {
+    constructor(ws) {
+        this.captions = new Map();
+        this.ws = ws;
+    }
+
+    singleCaptionSynced(caption) {
+        this.captions.set(caption.captionId, caption);
+        this.ws.sendJson({
+            type: 'CaptionUpdate',
+            caption: caption
+        });
+    }
+}
+
 // User manager
 class UserManager {
     constructor(ws) {
         this.allUsersMap = new Map();
         this.currentUsersMap = new Map();
         this.ws = ws;
+    }
+
+    getUserByDeviceId(deviceId) {
+        return this.allUsersMap.get(deviceId);
     }
 
     singleUserSynced(user) {
@@ -108,21 +128,26 @@ class WebSocketClient {
           return;
       }
 
-      // Convert JSON to string then to Uint8Array
-      const jsonString = JSON.stringify(data);
-      const jsonBytes = new TextEncoder().encode(jsonString);
-      
-      // Create final message: type (4 bytes) + json data
-      const message = new Uint8Array(4 + jsonBytes.length);
-      
-      // Set message type (1 for JSON)
-      new DataView(message.buffer).setInt32(0, WebSocketClient.MESSAGE_TYPES.JSON, true);
-      
-      // Copy JSON data after type
-      message.set(jsonBytes, 4);
-      
-      // Send the binary message
-      this.ws.send(message.buffer);
+      try {
+          // Convert JSON to string then to Uint8Array
+          const jsonString = JSON.stringify(data);
+          const jsonBytes = new TextEncoder().encode(jsonString);
+          
+          // Create final message: type (4 bytes) + json data
+          const message = new Uint8Array(4 + jsonBytes.length);
+          
+          // Set message type (1 for JSON)
+          new DataView(message.buffer).setInt32(0, WebSocketClient.MESSAGE_TYPES.JSON, true);
+          
+          // Copy JSON data after type
+          message.set(jsonBytes, 4);
+          
+          // Send the binary message
+          this.ws.send(message.buffer);
+      } catch (error) {
+          console.error('Error sending WebSocket message:', error);
+          console.error('Message data:', data);
+      }
   }
 }
 
@@ -541,6 +566,22 @@ const messageTypes = [
             { name: 'profilePicture', fieldNumber: 3, type: 'string' },
             { name: 'displayName', fieldNumber: 29, type: 'string' }
         ]
+    },
+    {
+        name: 'CaptionWrapper',
+        fields: [
+            { name: 'caption', fieldNumber: 1, type: 'message', messageType: 'Caption' }
+        ]
+    },
+    {
+        name: 'Caption',
+        fields: [
+            { name: 'deviceId', fieldNumber: 1, type: 'string' },
+            { name: 'captionId', fieldNumber: 2, type: 'int64' },
+            { name: 'version', fieldNumber: 3, type: 'int64' },
+            { name: 'text', fieldNumber: 6, type: 'string' },
+            { name: 'languageId', fieldNumber: 8, type: 'int64' }
+        ]
     }
 ];
 
@@ -569,6 +610,9 @@ function createMessageDecoder(messageType) {
                 case 'string':
                     value = reader.string();
                     break;
+                case 'int64':
+                    value = reader.int64();
+                    break;
                 case 'message':
                     value = messageDecoders[field.messageType](reader, reader.uint32());
                     break;
@@ -593,6 +637,7 @@ function createMessageDecoder(messageType) {
 
 const ws = new WebSocketClient();
 const userManager = new UserManager(ws);
+const captionManager = new CaptionManager(ws);
 
 // Create decoders for all message types
 const messageDecoders = {};
@@ -640,156 +685,11 @@ const handleCollectionEvent = (event) => {
   }
 };
 
-class Caption {
-  constructor(properties = {}) {
-      // Initialize default values
-      this.deviceSpace = "";
-      this.captionId = 0;
-      this.version = 0;
-      this.caption = "";
-      this.languageId = 0;
-
-      // Copy provided properties
-      for (const key of Object.keys(properties)) {
-          if (properties[key] != null) {
-              this[key] = properties[key];
-          }
-      }
-  }
-
-  /**
-   * Creates a new Caption instance
-   * @param {Object} properties - Initial properties
-   * @returns {Caption} New Caption instance
-   */
-  static create(properties) {
-      return new Caption(properties);
-  }
-
-  /**
-   * Encodes the Caption instance to binary format
-   * @param {Caption} message - Caption instance to encode
-   * @param {Writer} writer - Binary writer instance
-   * @returns {Writer} Writer with encoded data
-   */
-  static encode(message, writer) {
-      writer = writer || Writer.create();
-
-      if (message.deviceSpace != null) {
-          writer.uint32(10).string(message.deviceSpace);
-      }
-      if (message.captionId != null) {
-          writer.uint32(16).int64(message.captionId);
-      }
-      if (message.version != null) {
-          writer.uint32(24).int64(message.version);
-      }
-      if (message.caption != null) {
-          writer.uint32(50).string(message.caption);
-      }
-      if (message.languageId != null) {
-          writer.uint32(64).int64(message.languageId);
-      }
-
-      return writer;
-  }
-
-/**
-   * Decodes a Caption from binary format
-   * @param {Reader} reader - Binary reader instance
-   * @param {number} length - Message length
-   * @returns {Caption} Decoded Caption instance
-   */
-  static decode(reader, length) {
-      reader = reader instanceof protobuf.Reader ? reader : protobuf.Reader.create(reader);
-      const end = length === undefined ? reader.len : reader.pos + length;
-      const message = new Caption();
-
-      while (reader.pos < end) {
-          const tag = reader.uint32();
-          switch (tag >>> 3) {
-              case 1:
-                  message.deviceSpace = reader.string();
-                  break;
-              case 2:
-                  message.captionId = reader.int64();
-                  break;
-              case 3:
-                  message.version = reader.int64();
-                  break;
-              case 6:
-                  message.caption = reader.string();
-                  break;
-              case 8:
-                  message.languageId = reader.int64();
-                  break;
-              default:
-                  reader.skipType(tag & 7);
-                  break;
-          }
-      }
-      return message;
-  }
-
-  /**
-   * Verifies a Caption message
-   * @param {Object} message - Message to verify
-   * @returns {string|null} null if valid, error message if invalid
-   */
-  static verify(message) {
-      if (typeof message !== "object" || message === null) {
-          return "object expected";
-      }
-
-      if (message.deviceSpace != null && !isString(message.deviceSpace)) {
-          return "deviceSpace: string expected";
-      }
-      if (message.captionId != null && !isValidLong(message.captionId)) {
-          return "captionId: integer|Long expected";
-      }
-      if (message.version != null && !isValidLong(message.version)) {
-          return "version: integer|Long expected";
-      }
-      if (message.caption != null && !isString(message.caption)) {
-          return "caption: string expected";
-      }
-      if (message.languageId != null && !isValidLong(message.languageId)) {
-          return "languageId: integer|Long expected";
-      }
-
-      return null;
-  }
-}
-
-function decodeCaptionFromBuffer(buffer) {
-  try {
-      // Create initial reader for outer message
-      const outerReader = protobuf.Reader.create(new Uint8Array(buffer));
-      
-      // Read the first field (tag 1) which contains our actual caption data
-      const tag = outerReader.uint32();
-      if ((tag >>> 3) === 1) { // Field number 1
-          // Extract the inner buffer containing the actual caption protobuf
-          const innerBuffer = outerReader.bytes();
-          // Create new reader for the inner message and decode it
-          const innerReader = protobuf.Reader.create(innerBuffer);
-          const caption = Caption.decode(innerReader);
-          return caption;
-      }
-      
-      console.error('Unexpected protobuf structure');
-      return null;
-  } catch (error) {
-      console.error('Error decoding caption buffer:', error);
-      console.error('Buffer:', buffer);
-      return null;
-  }
-}
-
 const handleCaptionEvent = (event) => {
-  console.log('handleCaptionMessage44', event.data);
-  const caption = decodeCaptionFromBuffer(event.data);
-  console.log('caption22', caption)
+  const decodedData = new Uint8Array(event.data);
+  const captionWrapper = messageDecoders['CaptionWrapper'](decodedData);
+  const caption = captionWrapper.caption;
+  captionManager.singleCaptionSynced(caption);
 }
 
 new RTCInterceptor({

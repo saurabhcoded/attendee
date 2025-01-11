@@ -15,6 +15,9 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 import websockets
 from websockets.sync.server import serve
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
 def handle_websocket(websocket):
     try:
         for message in websocket:
@@ -119,6 +122,14 @@ async def join_meet():
     
     print("Clicking the 'Ask to join' button...")
     join_button.click()
+
+
+    print("Waiting for captions button...")
+    captions_button = WebDriverWait(driver, 600).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, 'button[aria-label="Turn on captions"]'))
+    )
+    print("Clicking captions button...")
+    captions_button.click()
 
     print("- End of work")
     sleep(10000)
