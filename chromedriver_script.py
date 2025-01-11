@@ -24,7 +24,6 @@ from selenium.webdriver.support import expected_conditions as EC
 def handle_websocket(websocket):
     audio_file = None
     audio_format = None
-    video_format = None
     frame_counter = 0  # Add frame counter
     output_dir = 'frames'  # Add output directory
     
@@ -50,21 +49,26 @@ def handle_websocket(websocket):
                         audio_file.setsampwidth(4)  # 4 bytes for float32
                         audio_file.setframerate(audio_format['sampleRate']/2)
                     
-                    elif json_data.get('type') == 'VideoFormatUpdate':
-                        video_format = json_data['format']
-                        # Remove video file creation since we're saving individual frames
-                    
             elif message_type == 2:  # VIDEO
-                if video_format is not None and len(message) > 12:
+                if len(message) > 24:  # Minimum length check
                     # Bytes 4-12 contain the timestamp
                     timestamp = int.from_bytes(message[4:12], byteorder='little')
+
+                    # Get track ID length and string
+                    track_id_length = int.from_bytes(message[12:16], byteorder='little')
+                    track_id = message[16:16+track_id_length].decode('utf-8')
+
+                    # Get width and height after track ID
+                    offset = 16 + track_id_length
+                    width = int.from_bytes(message[offset:offset+4], byteorder='little')
+                    height = int.from_bytes(message[offset+4:offset+8], byteorder='little')
+
+                    print("width", width)
+                    print("height", height)
+                    print("track_id", track_id)
                     
                     # Convert I420 format to BGR for OpenCV
-                    video_data = np.frombuffer(message[12:], dtype=np.uint8)
-                    
-                    # Reshape the data based on the format
-                    height = video_format['height']
-                    width = video_format['width']
+                    video_data = np.frombuffer(message[offset+8:], dtype=np.uint8)
                     
                     # Calculate sizes for Y, U, and V planes
                     y_size = width * height
@@ -84,7 +88,7 @@ def handle_websocket(websocket):
                     bgr = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR)
                     
                     # Instead of writing to video file, save as image
-                    frame_path = os.path.join(output_dir, f'frame_{frame_counter:06d}.png')
+                    frame_path = os.path.join(output_dir, f'frame_{frame_counter:06d}_{track_id}.png')
                     cv2.imwrite(frame_path, bgr)
                     frame_counter += 1
                     

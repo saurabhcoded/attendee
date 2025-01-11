@@ -179,15 +179,19 @@ class WebSocketClient {
       }
   }
 
-  sendVideo(timestamp, videoData) {
+  sendVideo(timestamp, trackId, width, height, videoData) {
       if (this.ws.readyState !== WebSocket.OPEN) {
           console.error('WebSocket is not connected');
           return;
       }
 
       try {
-          // Create final message: type (4 bytes) + timestamp (8 bytes) + video data
-          const message = new Uint8Array(4 + 8 + videoData.buffer.byteLength);
+          // Convert trackId to UTF-8 bytes
+          const trackIdBytes = new TextEncoder().encode(trackId);
+          
+          // Create final message: type (4 bytes) + timestamp (8 bytes) + trackId length (4 bytes) + 
+          // trackId bytes + width (4 bytes) + height (4 bytes) + video data
+          const message = new Uint8Array(4 + 8 + 4 + trackIdBytes.length + 4 + 4 + videoData.buffer.byteLength);
           const dataView = new DataView(message.buffer);
           
           // Set message type (2 for VIDEO)
@@ -196,8 +200,17 @@ class WebSocketClient {
           // Set timestamp as BigInt64
           dataView.setBigInt64(4, BigInt(timestamp), true);
 
-          // Copy video data after type and timestamp
-          message.set(new Uint8Array(videoData.buffer), 12);
+          // Set trackId length and bytes
+          dataView.setInt32(12, trackIdBytes.length, true);
+          message.set(trackIdBytes, 16);
+
+          // Set width and height
+          const trackIdOffset = 16 + trackIdBytes.length;
+          dataView.setInt32(trackIdOffset, width, true);
+          dataView.setInt32(trackIdOffset + 4, height, true);
+
+          // Copy video data after headers
+          message.set(new Uint8Array(videoData.buffer), trackIdOffset + 8);
           
           // Send the binary message
           this.ws.send(message.buffer);
@@ -748,9 +761,7 @@ const handleCaptionEvent = (event) => {
   captionManager.singleCaptionSynced(caption);
 }
 
-const handleVideoTrack = async (event) => {
-  let lastVideoFormat = null;  // Track last seen format
-  
+const handleVideoTrack = async (event) => {  
   try {
     // Create processor to get raw frames
     const processor = new MediaStreamTrackProcessor({ track: event.track });
@@ -783,29 +794,20 @@ const handleVideoTrack = async (event) => {
                 const data = new Uint8Array(rawFrame.allocationSize());
                 rawFrame.copyTo(data);
 
-                // Check if video format has changed
+                /*
                 const currentFormat = {
                     width: frame.displayWidth,
                     height: frame.displayHeight,
+                    dataSize: data.length,
                     format: rawFrame.format,
                     duration: frame.duration,
                     colorSpace: frame.colorSpace,
                     codedWidth: frame.codedWidth,
                     codedHeight: frame.codedHeight
                 };
-
-                // If format is different from last seen format, send update
-                if (!lastVideoFormat || 
-                    JSON.stringify(currentFormat) !== JSON.stringify(lastVideoFormat)) {
-                    lastVideoFormat = currentFormat;
-                    ws.sendJson({
-                        type: 'VideoFormatUpdate',
-                        format: currentFormat
-                    });
-                }
-
+                */
                 // Send video data through websocket
-                ws.sendVideo(frame.timestamp, data);
+                ws.sendVideo(frame.timestamp, event.track.id, frame.displayWidth, frame.displayHeight, data);
 
                 rawFrame.close();
                 controller.enqueue(frame);
