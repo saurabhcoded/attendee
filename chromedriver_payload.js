@@ -639,19 +639,19 @@ const messageTypes = [
     {
         name: 'UserInfoListWrapperWrapper',
         fields: [
-            { name: 'userEventInfo', fieldNumber: 1, type: 'message', messageType: 'EventInfo' },
             { name: 'userInfoListWrapper', fieldNumber: 2, type: 'message', messageType: 'UserInfoListWrapper' }
         ]
     },
     {
-        name: 'EventInfo',
+        name: 'UserEventInfo',
         fields: [
-            { name: 'eventType', fieldNumber: 1, type: 'varint' } // 44 = user joined, 45 = user left
+            { name: 'eventNumber', fieldNumber: 1, type: 'varint' } // sequence number for the event
         ]
     },
     {
         name: 'UserInfoListWrapper',
         fields: [
+            { name: 'userEventInfo', fieldNumber: 1, type: 'message', messageType: 'UserEventInfo' },
             { name: 'userInfoList', fieldNumber: 2, type: 'message', messageType: 'UserInfoList', repeated: true }
         ]
     },
@@ -661,6 +661,7 @@ const messageTypes = [
             { name: 'deviceId', fieldNumber: 1, type: 'string' },
             { name: 'fullName', fieldNumber: 2, type: 'string' },
             { name: 'profilePicture', fieldNumber: 3, type: 'string' },
+            { name: 'status', fieldNumber: 4, type: 'varint' }, // in meeting = 1 vs not in meeting = 6
             { name: 'displayName', fieldNumber: 29, type: 'string' },
             { name: 'parentDeviceId', fieldNumber: 21, type: 'string' } // if this is present, then this is a screenshare device. The parentDevice is the person that is sharing
         ]
@@ -779,8 +780,8 @@ const handleCollectionEvent = (event) => {
 
   const collectionEvent = messageDecoders['CollectionEvent'](decodedData);
   console.log('deviceOutputInfo', JSON.stringify(collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper?.deviceInfoWrapper?.deviceOutputInfo));
-  console.log('usermap', userMap.allUsersMap);
-  console.log('userInfoList And Event', collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper.userInfoListWrapperAndChatWrapper.userInfoListWrapper)
+  //console.log('usermap', userMap.allUsersMap);
+  console.log('userInfoList And Event', collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper.userInfoListWrapperAndChatWrapper.userInfoListWrapper);
   const userInfoList = collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper.userInfoListWrapperAndChatWrapper.userInfoListWrapper?.userInfoList || [];
   //console.log('userInfoList in collection event', userInfoList);
   // This event is triggered when a single user joins (or leaves) the meeting
