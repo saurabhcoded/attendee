@@ -794,11 +794,22 @@ const handleCollectionEvent = (event) => {
   }
 };
 
+// the stream ID, not the track id in the TRACK appears in the payload of the protobuf message somewhere
+
 const handleCaptionEvent = (event) => {
   const decodedData = new Uint8Array(event.data);
   const captionWrapper = messageDecoders['CaptionWrapper'](decodedData);
   const caption = captionWrapper.caption;
   captionManager.singleCaptionSynced(caption);
+}
+
+const handleMediaDirectorEvent = (event) => {
+  console.log('handleMediaDirectorEvent', event);
+  const decodedData = new Uint8Array(event.data);
+  //console.log(' handleCollectionEventdecodedData', decodedData);
+  // Convert decoded data to base64
+  const base64Data = btoa(String.fromCharCode.apply(null, decodedData));
+  console.log('Decoded media director event data (base64):', base64Data);
 }
 
 let lastSeenTrackId = null;
@@ -1064,6 +1075,13 @@ new RTCInterceptor({
          //       console.log('collectionsevent', event)
         //    });
         //}
+
+
+      if (dataChannel.label === 'media-director') {
+        dataChannel.addEventListener("message", (mediaDirectorEvent) => {
+            handleMediaDirectorEvent(mediaDirectorEvent);
+        });
+      }
 
        if (dataChannel.label === 'captions') {
             dataChannel.addEventListener("message", (captionEvent) => {
