@@ -49,7 +49,7 @@ def handle_websocket(websocket):
                         audio_file.setsampwidth(4)  # 4 bytes for float32
                         audio_file.setframerate(audio_format['sampleRate']/2)
                     
-            elif message_type == 2:  # VIDEO
+            elif message_type == 200:  # VIDEO
                 if len(message) > 24:  # Minimum length check
                     # Bytes 4-12 contain the timestamp
                     timestamp = int.from_bytes(message[4:12], byteorder='little')
@@ -122,7 +122,7 @@ async def join_meet():
     websocket_thread = threading.Thread(target=run_websocket_server, daemon=True)
     websocket_thread.start()
     
-    meet_link = os.getenv("GMEET_LINK", "https://meet.google.com/mvp-pmnh-mfk")
+    meet_link = os.getenv("GMEET_LINK", "https://meet.google.com/gvy-zzra-ktd")
     print(f"start recorder for {meet_link}")
 
     options = uc.ChromeOptions()
@@ -211,6 +211,37 @@ async def join_meet():
     )
     print("Clicking captions button...")
     captions_button.click()
+
+    print("Waiting for the more options button...")
+    MORE_OPTIONS_BUTTON_SELECTOR = 'button[jsname="NakZHc"][aria-label="More options"]'
+    more_options_button = WebDriverWait(driver, 6).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, MORE_OPTIONS_BUTTON_SELECTOR))
+    )
+    print("Clicking the more options button...")
+    more_options_button.click()
+
+    print("Waiting for the 'Change layout' list item...")
+    change_layout_list_item = WebDriverWait(driver, 6).until(
+        EC.presence_of_element_located((By.XPATH, '//li[.//span[text()="Change layout"]]'))
+    )
+    print("Clicking the 'Change layout' list item...")
+    change_layout_list_item.click()
+
+    print("Waiting for the 'Spotlight' label element")
+    spotlight_label = WebDriverWait(driver, 6).until(
+        EC.presence_of_element_located((By.XPATH, '//label[.//span[text()="Spotlight"]]'))
+    )
+    print("Clicking the 'Spotlight' label element")
+    spotlight_label.click()
+    
+    print("Waiting for the close button")
+    close_button = WebDriverWait(driver, 6).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, 'button[aria-label="Close"]'))
+    )
+    print("Clicking the close button")
+    close_button.click()   
+
+    
 
     print("- End of work")
     sleep(10000)
