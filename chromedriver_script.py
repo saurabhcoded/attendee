@@ -13,6 +13,7 @@ import cv2
 from time import sleep
 
 import undetected_chromedriver as uc
+from pyvirtualdisplay import Display
 
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
@@ -118,6 +119,10 @@ def run_websocket_server():
         server.serve_forever()
 
 async def join_meet():
+    # You need a virtual display if running on a server without a display
+    display = Display(visible=0, size=(1920, 1080))
+    display.start()
+
     # Start websocket server in a separate thread
     websocket_thread = threading.Thread(target=run_websocket_server, daemon=True)
     websocket_thread.start()
