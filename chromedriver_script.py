@@ -49,23 +49,23 @@ def handle_websocket(websocket):
                         audio_file.setsampwidth(4)  # 4 bytes for float32
                         audio_file.setframerate(audio_format['sampleRate']/2)
                     
-            elif message_type == 200:  # VIDEO
+            elif message_type == 2:  # VIDEO
                 if len(message) > 24:  # Minimum length check
                     # Bytes 4-12 contain the timestamp
                     timestamp = int.from_bytes(message[4:12], byteorder='little')
 
-                    # Get track ID length and string
-                    track_id_length = int.from_bytes(message[12:16], byteorder='little')
-                    track_id = message[16:16+track_id_length].decode('utf-8')
+                    # Get stream ID length and string
+                    stream_id_length = int.from_bytes(message[12:16], byteorder='little')
+                    stream_id = message[16:16+stream_id_length].decode('utf-8')
 
-                    # Get width and height after track ID
-                    offset = 16 + track_id_length
+                    # Get width and height after stream ID
+                    offset = 16 + stream_id_length
                     width = int.from_bytes(message[offset:offset+4], byteorder='little')
                     height = int.from_bytes(message[offset+4:offset+8], byteorder='little')
 
                     print("width", width)
                     print("height", height)
-                    print("track_id", track_id)
+                    print("stream_id", stream_id)
                     
                     # Convert I420 format to BGR for OpenCV
                     video_data = np.frombuffer(message[offset+8:], dtype=np.uint8)
@@ -88,7 +88,7 @@ def handle_websocket(websocket):
                     bgr = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR)
                     
                     # Instead of writing to video file, save as image
-                    frame_path = os.path.join(output_dir, f'frame_{frame_counter:06d}_{track_id}.png')
+                    frame_path = os.path.join(output_dir, f'frame_{frame_counter:06d}_{stream_id}.png')
                     cv2.imwrite(frame_path, bgr)
                     frame_counter += 1
                     

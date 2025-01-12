@@ -1,3 +1,67 @@
+// Video track manager
+class VideoTrackManager {
+    constructor(ws) {
+        this.videoTracks = new Map();
+        this.ws = ws;
+        this.trackToSendCache = null;
+    }
+
+    deleteVideoTrack(videoTrack) {
+        this.videoTracks.delete(videoTrack.id);
+    }
+
+    upsertVideoTrack(videoTrack, isScreenShare) {
+        existingVideoTrack = this.videoTracks.get(videoTrack.id);
+
+        // Create new object with track info and firstSeenAt timestamp
+        const trackInfo = {
+            originalTrack: videoTrack,
+            isScreenShare: isScreenShare,
+            firstSeenAt: existingVideoTrack ? existingVideoTrack.firstSeenAt : Date.now()
+        };
+ 
+        console.log('upsertVideoTrack for', videoTrack.id, '=', trackInfo);
+        
+        this.videoTracks.set(videoTrack.id, trackInfo);
+        this.trackToSendCache = null;
+    }
+
+    getStreamIdToSendCached() {
+        return this.getTrackToSendCached()?.originalTrack?.streams[0]?.id;
+    }
+
+    getTrackToSendCached() {
+        if (this.trackToSendCache) {
+            return this.trackToSendCache;
+        }
+
+        this.trackToSendCache = this.getTrackToSend();
+        return this.trackToSendCache;
+    }
+
+    getTrackToSend() {
+        const screenShareTracks = Array.from(this.videoTracks.values()).filter(track => track.isScreenShare);
+        const mostRecentlyCreatedScreenShareTrack = screenShareTracks.reduce((max, track) => {
+            return track.firstSeenAt > max.firstSeenAt ? track : max;
+        }, screenShareTracks[0]);
+
+        if (mostRecentlyCreatedScreenShareTrack) {
+            return mostRecentlyCreatedScreenShareTrack;
+        }
+
+        const nonScreenShareTracks = Array.from(this.videoTracks.values()).filter(track => !track.isScreenShare);
+        const mostRecentlyCreatedNonScreenShareTrack = nonScreenShareTracks.reduce((max, track) => {
+            return track.firstSeenAt > max.firstSeenAt ? track : max;
+        }, nonScreenShareTracks[0]);
+
+        if (mostRecentlyCreatedNonScreenShareTrack) {
+            return mostRecentlyCreatedNonScreenShareTrack;
+        }
+
+        return null;
+    }
+}
+
 // Caption manager
 class CaptionManager {
     constructor(ws) {
@@ -19,11 +83,58 @@ class UserManager {
     constructor(ws) {
         this.allUsersMap = new Map();
         this.currentUsersMap = new Map();
+        this.deviceOutputMap = new Map();
+
         this.ws = ws;
+    }
+
+    DEVICE_OUTPUT_TYPE = {
+        AUDIO: 1,
+        VIDEO: 2
+    }
+
+    getDeviceOutput(deviceId, outputType) {
+        return this.deviceOutputMap.get(`${deviceId}-${outputType}`);
+    }
+
+    updateDeviceOutputs(deviceOutputs) {
+        for (const output of deviceOutputs) {
+            const key = `${output.deviceId}-${output.deviceOutputType}`; // Unique key combining device ID and output type
+
+            const deviceOutput = {
+                deviceId: output.deviceId,
+                outputType: output.deviceOutputType, // 1 = audio, 2 = video
+                streamId: output.streamId,
+                disabled: output.deviceOutputStatus.disabled,
+                lastUpdated: Date.now()
+            };
+
+            this.deviceOutputMap.set(key, deviceOutput);
+        }
+
+        // Notify websocket clients about the device output update
+        this.ws.sendJson({
+            type: 'DeviceOutputsUpdate',
+            deviceOutputs: Array.from(this.deviceOutputMap.values())
+        });
     }
 
     getUserByDeviceId(deviceId) {
         return this.allUsersMap.get(deviceId);
+    }
+
+    // constants for meeting status
+    MEETING_STATUS = {
+        IN_MEETING: 1,
+        NOT_IN_MEETING: 6
+    }
+
+    getCurrentUsersInMeeting() {
+        return Array.from(this.currentUsersMap.values()).filter(user => user.status === this.MEETING_STATUS.IN_MEETING);
+    }
+
+    getCurrentUsersInMeetingWhoAreScreenSharing() {
+        return this.getCurrentUsersInMeeting().filter(user => user.parentDeviceId);
     }
 
     singleUserSynced(user) {
@@ -64,7 +175,9 @@ class UserManager {
                 deviceId: user.deviceId,
                 displayName: user.displayName,
                 fullName: user.fullName,
-                profile: user.profile
+                profilePicture: user.profilePicture,
+                status: user.status,
+                parentDeviceId: user.parentDeviceId
             });
         }
 
@@ -179,19 +292,19 @@ class WebSocketClient {
       }
   }
 
-  sendVideo(timestamp, trackId, width, height, videoData) {
+  sendVideo(timestamp, streamId, width, height, videoData) {
       if (this.ws.readyState !== WebSocket.OPEN) {
           console.error('WebSocket is not connected for video send', this.ws.readyState);
           return;
       }
 
       try {
-          // Convert trackId to UTF-8 bytes
-          const trackIdBytes = new TextEncoder().encode(trackId);
+          // Convert streamId to UTF-8 bytes
+          const streamIdBytes = new TextEncoder().encode(streamId);
           
-          // Create final message: type (4 bytes) + timestamp (8 bytes) + trackId length (4 bytes) + 
-          // trackId bytes + width (4 bytes) + height (4 bytes) + video data
-          const message = new Uint8Array(4 + 8 + 4 + trackIdBytes.length + 4 + 4 + videoData.buffer.byteLength);
+          // Create final message: type (4 bytes) + timestamp (8 bytes) + streamId length (4 bytes) + 
+          // streamId bytes + width (4 bytes) + height (4 bytes) + video data
+          const message = new Uint8Array(4 + 8 + 4 + streamIdBytes.length + 4 + 4 + videoData.buffer.byteLength);
           const dataView = new DataView(message.buffer);
           
           // Set message type (2 for VIDEO)
@@ -200,17 +313,17 @@ class WebSocketClient {
           // Set timestamp as BigInt64
           dataView.setBigInt64(4, BigInt(timestamp), true);
 
-          // Set trackId length and bytes
-          dataView.setInt32(12, trackIdBytes.length, true);
-          message.set(trackIdBytes, 16);
+          // Set streamId length and bytes
+          dataView.setInt32(12, streamIdBytes.length, true);
+          message.set(streamIdBytes, 16);
 
           // Set width and height
-          const trackIdOffset = 16 + trackIdBytes.length;
-          dataView.setInt32(trackIdOffset, width, true);
-          dataView.setInt32(trackIdOffset + 4, height, true);
+          const streamIdOffset = 16 + streamIdBytes.length;
+          dataView.setInt32(streamIdOffset, width, true);
+          dataView.setInt32(streamIdOffset + 4, height, true);
 
           // Copy video data after headers
-          message.set(new Uint8Array(videoData.buffer), trackIdOffset + 8);
+          message.set(new Uint8Array(videoData.buffer), streamIdOffset + 8);
           
           // Send the binary message
           this.ws.send(message.buffer);
@@ -606,13 +719,13 @@ const messageTypes = [
     {
         name: 'DeviceInfoWrapper',
         fields: [
-            { name: 'deviceOutputInfo', fieldNumber: 2, type: 'message', messageType: 'DeviceOutputInfo', repeated: true }
+            { name: 'deviceOutputInfoList', fieldNumber: 2, type: 'message', messageType: 'DeviceOutputInfoList', repeated: true }
         ]
     },
     {
-        name: 'DeviceOutputInfo',
+        name: 'DeviceOutputInfoList',
         fields: [
-            { name: 'deviceOutputType', fieldNumber: 2, type: 'varint' }, // Speculating that 1 = audio, 2 = camera
+            { name: 'deviceOutputType', fieldNumber: 2, type: 'varint' }, // Speculating that 1 = audio, 2 = video
             { name: 'streamId', fieldNumber: 4, type: 'string' },
             { name: 'deviceId', fieldNumber: 6, type: 'string' },
             { name: 'deviceOutputStatus', fieldNumber: 10, type: 'message', messageType: 'DeviceOutputStatus' }
@@ -741,6 +854,7 @@ function createMessageDecoder(messageType) {
 const ws = new WebSocketClient();
 const userManager = new UserManager(ws);
 const captionManager = new CaptionManager(ws);
+const videoTrackManager = new VideoTrackManager(ws);
 
 // Create decoders for all message types
 const messageDecoders = {};
@@ -777,12 +891,17 @@ const handleCollectionEvent = (event) => {
   //console.log(' handleCollectionEventdecodedData', decodedData);
   // Convert decoded data to base64
   const base64Data = btoa(String.fromCharCode.apply(null, decodedData));
-  console.log('Decoded collection event data (base64):', base64Data);
+  //console.log('Decoded collection event data (base64):', base64Data);
 
   const collectionEvent = messageDecoders['CollectionEvent'](decodedData);
-  console.log('deviceOutputInfo', JSON.stringify(collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper?.deviceInfoWrapper?.deviceOutputInfo));
+  
+  const deviceOutputInfoList = collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper?.deviceInfoWrapper?.deviceOutputInfoList;
+  if (deviceOutputInfoList) {
+    userManager.updateDeviceOutputs(deviceOutputInfoList);
+  }
+  //console.log('deviceOutputInfoList', JSON.stringify(collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper?.deviceInfoWrapper?.deviceOutputInfoList));
   //console.log('usermap', userMap.allUsersMap);
-  console.log('userInfoList And Event', collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper.userInfoListWrapperAndChatWrapper.userInfoListWrapper);
+  //console.log('userInfoList And Event', collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper.userInfoListWrapperAndChatWrapper.userInfoListWrapper);
   const userInfoList = collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper.userInfoListWrapperAndChatWrapper.userInfoListWrapper?.userInfoList || [];
   //console.log('userInfoList in collection event', userInfoList);
   // This event is triggered when a single user joins (or leaves) the meeting
@@ -813,7 +932,6 @@ const handleMediaDirectorEvent = (event) => {
   console.log('Decoded media director event data (base64):', base64Data);
 }
 
-let lastSeenTrackId = null;
 const handleVideoTrack = async (event) => {  
   try {
     // Create processor to get raw frames
@@ -824,18 +942,20 @@ const handleVideoTrack = async (event) => {
     const readable = processor.readable;
     const writable = generator.writable;
 
-    lastSeenTrackId = event.track.id;
-    console.log('lastSeenTrackId', lastSeenTrackId);
+    const firstStreamId = event.streams[0].id;
+
+    // Check if of the users who are in the meeting and screensharers
+    // if any of them have an associated device output with the first stream ID of this video track
+    const isScreenShare = userManager
+        .getCurrentUsersInMeetingWhoAreScreenSharing()
+        .some(user => userManager.getDeviceOutput(user.deviceId, UserManager.DEVICE_OUTPUT_TYPE.VIDEO) === firstStreamId);
+    videoTrackManager.upsertVideoTrack(event.track, isScreenShare);
 
     // Transform stream to intercept frames
     const transformStream = new TransformStream({
         async transform(frame, controller) {
             if (!frame) {
                 return;
-            }
-
-            if (lastSeenTrackId !== event.track.id) {
-              return;
             }
 
             try {
@@ -845,31 +965,33 @@ const handleVideoTrack = async (event) => {
                     return;
                 }
 
-                // Copy the frame to get access to raw data
-                const rawFrame = new VideoFrame(frame, {
-                    format: 'I420'
-                });
+                if (firstStreamId === videoTrackManager.getStreamIdToSendCached()) {
+                    // Copy the frame to get access to raw data
+                    const rawFrame = new VideoFrame(frame, {
+                        format: 'I420'
+                    });
 
-                // Get the raw data from the frame
-                const data = new Uint8Array(rawFrame.allocationSize());
-                rawFrame.copyTo(data);
+                    // Get the raw data from the frame
+                    const data = new Uint8Array(rawFrame.allocationSize());
+                    rawFrame.copyTo(data);
 
-                /*
-                const currentFormat = {
-                    width: frame.displayWidth,
-                    height: frame.displayHeight,
-                    dataSize: data.length,
-                    format: rawFrame.format,
-                    duration: frame.duration,
-                    colorSpace: frame.colorSpace,
-                    codedWidth: frame.codedWidth,
-                    codedHeight: frame.codedHeight
-                };
-                */
-                // Send video data through websocket
-                ws.sendVideo(frame.timestamp, event.track.id, frame.displayWidth, frame.displayHeight, data);
+                    /*
+                    const currentFormat = {
+                        width: frame.displayWidth,
+                        height: frame.displayHeight,
+                        dataSize: data.length,
+                        format: rawFrame.format,
+                        duration: frame.duration,
+                        colorSpace: frame.colorSpace,
+                        codedWidth: frame.codedWidth,
+                        codedHeight: frame.codedHeight
+                    };
+                    */
+                    // Send video data through websocket
+                    ws.sendVideo(frame.timestamp, firstStreamId, frame.displayWidth, frame.displayHeight, data);
 
-                rawFrame.close();
+                    rawFrame.close();
+                }
                 controller.enqueue(frame);
             } catch (error) {
                 console.error('Error processing frame:', error);
@@ -1027,6 +1149,7 @@ new RTCInterceptor({
             // Log the track and its associated streams
             console.log('New track:', {
                 trackId: event.track.id,
+                streams: event.streams,
                 streamIds: event.streams.map(stream => stream.id),
                 // Get any msid information
                 transceiver: event.transceiver,
