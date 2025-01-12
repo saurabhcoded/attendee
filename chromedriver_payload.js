@@ -8,16 +8,18 @@ class VideoTrackManager {
 
     deleteVideoTrack(videoTrack) {
         this.videoTracks.delete(videoTrack.id);
+        this.trackToSendCache = null;
     }
 
-    upsertVideoTrack(videoTrack, isScreenShare) {
-        existingVideoTrack = this.videoTracks.get(videoTrack.id);
+    upsertVideoTrack(videoTrack, streamId, isScreenShare) {
+        const existingVideoTrack = this.videoTracks.get(videoTrack.id);
 
         // Create new object with track info and firstSeenAt timestamp
         const trackInfo = {
             originalTrack: videoTrack,
             isScreenShare: isScreenShare,
-            firstSeenAt: existingVideoTrack ? existingVideoTrack.firstSeenAt : Date.now()
+            firstSeenAt: existingVideoTrack ? existingVideoTrack.firstSeenAt : Date.now(),
+            streamId: streamId
         };
  
         console.log('upsertVideoTrack for', videoTrack.id, '=', trackInfo);
@@ -27,7 +29,7 @@ class VideoTrackManager {
     }
 
     getStreamIdToSendCached() {
-        return this.getTrackToSendCached()?.originalTrack?.streams[0]?.id;
+        return this.getTrackToSendCached()?.streamId;
     }
 
     getTrackToSendCached() {
@@ -78,6 +80,11 @@ class CaptionManager {
     }
 }
 
+const DEVICE_OUTPUT_TYPE = {
+    AUDIO: 1,
+    VIDEO: 2
+}
+
 // User manager
 class UserManager {
     constructor(ws) {
@@ -88,10 +95,6 @@ class UserManager {
         this.ws = ws;
     }
 
-    DEVICE_OUTPUT_TYPE = {
-        AUDIO: 1,
-        VIDEO: 2
-    }
 
     getDeviceOutput(deviceId, outputType) {
         return this.deviceOutputMap.get(`${deviceId}-${outputType}`);
@@ -140,7 +143,7 @@ class UserManager {
     singleUserSynced(user) {
       // Create array with new user and existing users, then filter for unique deviceIds
       // keeping the first occurrence (new user takes precedence)
-      const allUsers = [user, ...this.currentUsersMap.values()];
+      const allUsers = [...this.currentUsersMap.values(), user];
       const uniqueUsers = Array.from(
         new Map(allUsers.map(user => [user.deviceId, user])).values()
       );
@@ -158,7 +161,9 @@ class UserManager {
                 deviceId: user.deviceId,
                 displayName: user.displayName,
                 fullName: user.fullName,
-                profile: user.profile
+                profile: user.profile,
+                status: user.status,
+                parentDeviceId: user.parentDeviceId
             });
         }
 
@@ -903,7 +908,7 @@ const handleCollectionEvent = (event) => {
   //console.log('usermap', userMap.allUsersMap);
   //console.log('userInfoList And Event', collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper.userInfoListWrapperAndChatWrapper.userInfoListWrapper);
   const userInfoList = collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper.userInfoListWrapperAndChatWrapper.userInfoListWrapper?.userInfoList || [];
-  //console.log('userInfoList in collection event', userInfoList);
+  console.log('userInfoList in collection event', userInfoList);
   // This event is triggered when a single user joins (or leaves) the meeting
   // generally this array only contains a single user
   // we can't tell whether the event is a join or leave event, so we'll assume it's a join
@@ -938,18 +943,26 @@ const handleVideoTrack = async (event) => {
     const processor = new MediaStreamTrackProcessor({ track: event.track });
     const generator = new MediaStreamTrackGenerator({ kind: 'video' });
     
+    // Add track ended listener
+    event.track.addEventListener('ended', () => {
+        console.log('Video track ended:', event.track.id);
+        videoTrackManager.deleteVideoTrack(event.track);
+    });
+    
     // Get readable stream of video frames
     const readable = processor.readable;
     const writable = generator.writable;
 
-    const firstStreamId = event.streams[0].id;
+    const firstStreamId = event.streams[0]?.id;
 
     // Check if of the users who are in the meeting and screensharers
     // if any of them have an associated device output with the first stream ID of this video track
     const isScreenShare = userManager
         .getCurrentUsersInMeetingWhoAreScreenSharing()
-        .some(user => userManager.getDeviceOutput(user.deviceId, UserManager.DEVICE_OUTPUT_TYPE.VIDEO) === firstStreamId);
-    videoTrackManager.upsertVideoTrack(event.track, isScreenShare);
+        .some(user => firstStreamId &&userManager.getDeviceOutput(user.deviceId, DEVICE_OUTPUT_TYPE.VIDEO).streamId === firstStreamId);
+    if (firstStreamId) {
+        videoTrackManager.upsertVideoTrack(event.track, firstStreamId, isScreenShare);
+    }
 
     // Transform stream to intercept frames
     const transformStream = new TransformStream({
@@ -964,8 +977,9 @@ const handleVideoTrack = async (event) => {
                     frame.close();
                     return;
                 }
+                console.log('transformStream', firstStreamId, ' vs ', videoTrackManager.getStreamIdToSendCached());
 
-                if (firstStreamId === videoTrackManager.getStreamIdToSendCached()) {
+                if (firstStreamId && firstStreamId === videoTrackManager.getStreamIdToSendCached()) {
                     // Copy the frame to get access to raw data
                     const rawFrame = new VideoFrame(frame, {
                         format: 'I420'
