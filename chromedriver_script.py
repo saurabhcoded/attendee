@@ -90,7 +90,7 @@ def handle_websocket(websocket):
                     
                     # Instead of writing to video file, save as image
                     frame_path = os.path.join(output_dir, f'frame_{frame_counter:06d}_{stream_id}.png')
-                    cv2.imwrite(frame_path, bgr)
+                    #cv2.imwrite(frame_path, bgr)
                     frame_counter += 1
                     
             elif message_type == 3:  # AUDIO
