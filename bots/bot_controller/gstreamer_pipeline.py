@@ -48,7 +48,9 @@ class GstreamerPipeline:
             'queue name=q2 max-size-buffers=5000 max-size-bytes=500000000 max-size-time=0 ! ' # q2 can contain 100mb of video before it drops
             'x264enc tune=zerolatency speed-preset=ultrafast ! '
             'queue name=q3 max-size-buffers=1000 max-size-bytes=100000000 max-size-time=0 ! '
-            'mp4mux name=muxer ! queue name=q4 ! appsink name=sink emit-signals=true sync=false drop=false '
+            'h264parse ! '
+            'flvmux name=muxer streamable=true ! queue name=q4 ! '
+            'rtmp2sink location=rtmp://global-live.mux.com:5222/app/xxxx '
             'appsrc name=audio_source do-timestamp=false stream-type=0 format=time ! '
             'queue name=q5 leaky=downstream max-size-buffers=1000000 max-size-bytes=100000000 max-size-time=0 ! '
             'audioconvert ! '
@@ -89,8 +91,8 @@ class GstreamerPipeline:
         bus.connect('message', self.on_pipeline_message)
 
         # Connect to the sink element
-        sink = self.pipeline.get_by_name('sink')
-        sink.connect("new-sample", self.on_new_sample_from_appsink)
+        #sink = self.pipeline.get_by_name('sink')
+        #sink.connect("new-sample", self.on_new_sample_from_appsink)
         
         # Start the pipeline
         self.pipeline.set_state(Gst.State.PLAYING)
