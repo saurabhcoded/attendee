@@ -32,3 +32,29 @@ if os.getenv('ERROR_REPORTS_RECEIVER_EMAIL_ADDRESS'):
     ADMINS.append(('Attendee Error Reports Email Receiver', os.getenv('ERROR_REPORTS_RECEIVER_EMAIL_ADDRESS')))
 
 SERVER_EMAIL = 'noreply@mail.attendee.dev'
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'DEBUG',  # Set Django framework logging to DEBUG
+        },
+        'django.db.backends': {
+            'handlers': ['console'],
+            'level': 'DEBUG',  # This will log all SQL queries
+            'propagate': False,
+        },
+        'attendee': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': True,
+        }
+    },
+}
