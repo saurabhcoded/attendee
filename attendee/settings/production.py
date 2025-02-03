@@ -32,3 +32,5 @@ if os.getenv('ERROR_REPORTS_RECEIVER_EMAIL_ADDRESS'):
     ADMINS.append(('Attendee Error Reports Email Receiver', os.getenv('ERROR_REPORTS_RECEIVER_EMAIL_ADDRESS')))
 
 SERVER_EMAIL = 'noreply@mail.attendee.dev'
+
+CSRF_TRUSTED_ORIGINS = ['https://*.attendee.dev']
