@@ -13,8 +13,9 @@ DATABASES = {
 }
 
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-SECURE_SSL_REDIRECT = True
-SECURE_HSTS_SECONDS = 60
+# Disabling these because it's enforced at the ingress level now on GKE
+# SECURE_SSL_REDIRECT = True
+# SECURE_HSTS_SECONDS = 60
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 

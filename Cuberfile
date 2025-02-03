@@ -22,6 +22,8 @@ ingress true
 lb 'kubernetes.io/ingress.global-static-ip-name', 'web-static-ip'
 lb 'kubernetes.io/ingress.class', 'gce'
 lb 'networking.gke.io/managed-certificates', 'attendee-cert-4'
+lb 'networking.gke.io/managed-certificates', 'attendee-cert-4'
+lb 'kubernetes.io/ingress.allow-http', 'false'
 
 env 'DJANGO_SETTINGS_MODULE', 'attendee.settings.production'
 env 'DJANGO_SECRET_KEY', google_cloud_secret('DJANGO_SECRET_KEY'), secret: true
