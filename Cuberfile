@@ -16,7 +16,7 @@ image 'nduncanattendee/attendee'
 # Connect to this Kubernetes cluster
 kubeconfig '/home/nduncan/.kube/config'
 
-health 'http://web-service.attendee.svc.cluster.local/health'
+health 'https://web-service.attendee.svc.cluster.local/health'
 
 ingress true
 lb 'kubernetes.io/ingress.global-static-ip-name', 'web-static-ip'
