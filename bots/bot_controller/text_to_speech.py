@@ -1,6 +1,7 @@
 from google.cloud import texttospeech
 from bots.models import Credentials
 import json
+import pyht
 
 def generate_audio_from_text(bot, text, settings, sample_rate):
     """
@@ -21,6 +22,24 @@ def generate_audio_from_text(bot, text, settings, sample_rate):
     """
 
 
+    if settings.get('p'):
+        return generate_audio_from_text_with_google_tts(bot, text, settings, sample_rate)
+    elif settings.get('google'):
+        return generate_audio_from_text_with_playht(bot, text, settings, sample_rate)
+    else:
+        raise ValueError("No text-to-speech settings found.")
+
+def generate_audio_from_text_with_playht(bot, text, settings, sample_rate):
+    client = pyht.Client(
+        user_id="x",
+        api_key="x",
+    )
+    options = pyht.TTSOptions(format=pyht.Format.FORMAT_PCM, sample_rate=sample_rate, voice='s3://voice-cloning-zero-shot/d9ff78ba-d016-47f6-b0ef-dd630f59414e/female-cs/manifest.json')
+    
+    for chunk in client.tts(text, options):
+        yield chunk
+
+def generate_audio_from_text_with_google_tts(bot, text, settings, sample_rate):
     # Additional providers will be added, for now we only support Google TTS
     google_tts_credentials = bot.project.credentials.filter(
         credential_type=Credentials.CredentialTypes.GOOGLE_TTS
@@ -75,4 +94,4 @@ def generate_audio_from_text(bot, text, settings, sample_rate):
     duration_ms = int((len(audio_content) / bytes_per_sample / sample_rate) * 1000)
 
     # Return both audio content and duration
-    return audio_content, duration_ms 
+    return [audio_content] 
