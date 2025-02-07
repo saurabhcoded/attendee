@@ -21,10 +21,11 @@ class AudioOutputManager:
 
     def _generate_audio_chunks(self):
         bytes_per_sample = 2
-        chunk_for_adapter_size = self.SAMPLE_RATE * bytes_per_sample
+        adapter_chunk_size = self.SAMPLE_RATE * bytes_per_sample
         audio_media_request = self.currently_playing_audio_media_request
-        accumulated_chunks_from_provider = b''
-        for chunk_from_provider in generate_audio_from_text(
+        bytes_from_tts_provider = b''
+        n_bytes_from_tts_provider_sent_to_adapter = 0
+        for chunk_from_tts_provider in generate_audio_from_text(
                 text=audio_media_request.text_to_speak,
                 settings=audio_media_request.text_to_speech_settings,
                 sample_rate=self.SAMPLE_RATE,
@@ -32,25 +33,24 @@ class AudioOutputManager:
         ):
             if self.stop_audio_thread:
                 return
-            print("chunk_from_provider", len(chunk_from_provider))
-            accumulated_chunks_from_provider += chunk_from_provider
-            if len(accumulated_chunks_from_provider) >= chunk_for_adapter_size:
-                first_chunk = accumulated_chunks_from_provider[:chunk_for_adapter_size]
-                self.audio_queue.put(first_chunk)
-                accumulated_chunks_from_provider = accumulated_chunks_from_provider[chunk_for_adapter_size:]
+            bytes_from_tts_provider += chunk_from_tts_provider
+            while n_bytes_from_tts_provider_sent_to_adapter + adapter_chunk_size <= len(bytes_from_tts_provider):
+                next_chunk = bytes_from_tts_provider[n_bytes_from_tts_provider_sent_to_adapter:n_bytes_from_tts_provider_sent_to_adapter + adapter_chunk_size]
+                self.audio_queue.put(next_chunk)
+                n_bytes_from_tts_provider_sent_to_adapter += adapter_chunk_size
+        self.audio_queue.put(bytes_from_tts_provider[n_bytes_from_tts_provider_sent_to_adapter:])
         self.audio_queue.put(None)  # Signal end of chunks
-        print('dunzo')
+
+        n_samples = len(bytes_from_tts_provider) / bytes_per_sample
+        self.currently_playing_audio_media_request_duration_ms = (n_samples / self.SAMPLE_RATE) * 1000
 
     def _play_audio_chunks(self):
         while not self.stop_audio_thread:
             chunk = self.audio_queue.get()
             if chunk is None:  # End of audio signal
                 break
-            print("playing chunk", len(chunk))
             self.play_raw_audio_callback(bytes=chunk, sample_rate=self.SAMPLE_RATE)
             time.sleep(0.9)  # Sleep only in playback thread
-        
-        self.currently_playing_audio_media_request_duration_ms = 10
 
     def _stop_audio_thread(self):
         """Stop the currently running audio thread if it exists."""
