@@ -289,7 +289,20 @@ class GoogleMeetBotAdapter(BotAdapter):
 
         options = uc.ChromeOptions()
 
+        # Load module-null-sink for virtual output
+        subprocess.run(['pactl', 'load-module', 'module-null-sink', 'sink_name=virtual_speaker'], check=True)
+        
+        # Create virtual source that Chrome will use as microphone
+        subprocess.run(['pactl', 'load-module', 'module-virtual-source', 'source_name=virtual_mic', 'master=virtual_speaker.monitor'], check=True)
+        
+        # Store the virtual device name
+        self.virtual_source = "virtual_mic"
+        
+        # Add Chrome option to use our virtual microphone
+
         options.add_argument("--use-fake-ui-for-media-stream")
+        options.add_argument("--use-fake-device-for-media-stream")
+        options.add_argument(f'--use-file-for-fake-audio-capture=/home/nduncan/Downloads/synthesis.wav')
         options.add_argument("--window-size=1920x1080")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-setuid-sandbox")
@@ -442,6 +455,9 @@ class GoogleMeetBotAdapter(BotAdapter):
 
     def cleanup(self):
         try:
+            subprocess.run(['pactl', 'unload-module', 'module-virtual-source'], check=False)
+            subprocess.run(['pactl', 'unload-module', 'module-null-sink'], check=False)
+
             print("disable media sending")
             self.driver.execute_script("window.ws.disableMediaSending();")
         except Exception as e:
@@ -489,3 +505,28 @@ class GoogleMeetBotAdapter(BotAdapter):
                 print("Auto-leaving meeting because there was no media message for 30 seconds")
                 self.leave()
                 return
+    def send_raw_audio(self, bytes, sample_rate):
+        """
+        Send raw PCM audio data to the virtual microphone device.
+        
+        Args:
+            bytes: Raw PCM audio data as bytes
+            sample_rate: Sample rate of the audio data in Hz
+        """
+        try:
+            # Create a temporary WAV file
+            with wave.open('/tmp/temp_audio.wav', 'wb') as wav_file:
+                wav_file.setnchannels(1)  # Mono
+                wav_file.setsampwidth(2)  # 16-bit
+                wav_file.setframerate(sample_rate)
+                wav_file.writeframes(bytes)
+            
+            # Play the audio through the virtual device using paplay
+            subprocess.Popen([
+                'paplay',
+                '--device=virtual_speaker',
+                '/tmp/temp_audio.wav'
+            ])
+            
+        except Exception as e:
+            print(f"Error sending audio: {e}")
