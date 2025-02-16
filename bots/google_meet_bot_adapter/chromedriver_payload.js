@@ -508,6 +508,17 @@ class WebSocketClient {
           console.error('Error sending WebSocket video message:', error);
       }
   }
+
+  close() {
+    this.disableMediaSending(); // Stop media sending first
+    
+    if (this.ws) {
+        if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+            this.ws.close(1000, 'Client closing connection');
+        }
+        this.ws = null;
+    }
+  }
 }
 
 // Interceptors
@@ -1172,6 +1183,13 @@ new RTCInterceptor({
                 handleCaptionEvent(captionEvent);
             });
         }
+    }
+});
+
+// Add cleanup on page unload
+window.addEventListener('beforeunload', () => {
+    if (window.ws) {
+        window.ws.close();
     }
 });
 
