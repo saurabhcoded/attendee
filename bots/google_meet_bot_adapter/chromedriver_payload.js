@@ -1,3 +1,88 @@
+class FrameQueue {
+    constructor(ws, type) {
+        this.ws = ws;
+        this.queue = []
+        this.sendInterval = 25; // ms between sends
+        this.running = false;
+        this.type = type;
+    }
+
+    start() {
+        if (this.running) return;
+        this.running = true;
+        this.processQueue();
+    }
+
+    stop() {
+        this.running = false;
+    }
+
+    enqueueFrame(frameData) {
+        this.queue.push(frameData);
+    }
+
+    async processQueue() {
+        const processQueue = async () => {
+            if (!this.running) return;
+
+            try {
+
+                //console.log('processQueue', this.type, 'queue', this.queue.length);
+
+                // Process all available audio frames
+                while (this.queue.length > 0) {
+                    const frameData = this.queue[0];
+                    await this.sendFrame(frameData);
+                    this.queue.shift();
+                }
+
+                // Schedule next processing
+                setTimeout(processQueue, this.sendInterval);
+            } catch (error) {
+                console.error('Error processing frame queue:', error);
+                setTimeout(processQueue, this.sendInterval);
+            }
+        };
+
+        processQueue();
+    }
+
+    async sendFrame(frameData) {
+        try {
+            if (this.type === 'video') {
+                await this.sendVideoFrame(frameData);
+            } else if (this.type === 'audio') {
+                await this.sendAudioFrame(frameData);
+            }
+        } catch (error) {
+            console.error('Error sending frame:', error);
+        }
+    }
+
+    async sendVideoFrame(frameData) {
+        try {
+            const { timestamp, streamId, width, height, data } = frameData;
+    
+            await this.ws.sendVideo(timestamp, streamId, width, height, data);
+            
+        } catch (error) {
+            console.error('Error sending video frame:', error);
+        }
+    }
+
+
+    async sendAudioFrame(frameData) {
+        try {
+            const { timestamp, data } = frameData;
+
+            await this.ws.sendAudio(timestamp, data);
+            
+        } catch (error) {
+            console.error('Error sending audio frame:', error);
+        }
+    }
+}
+
 // Video track manager
 class VideoTrackManager {
     constructor(ws) {
@@ -274,6 +359,7 @@ class WebSocketClient {
                 
                 // Fix: Math.floor() the milliseconds before converting to BigInt
                 const currentTimeMicros = BigInt(Math.floor(currentTime) * 1000);
+                console.log('sending black frame', currentTimeMicros);
                 this.sendVideo(currentTimeMicros, '0', width, height, frameData);
             }
         } catch (error) {
@@ -675,6 +761,24 @@ const userManager = new UserManager(ws);
 const captionManager = new CaptionManager(ws);
 const videoTrackManager = new VideoTrackManager(ws);
 
+const audioFrameQueue = new FrameQueue(ws, 'audio');
+window.audioFrameQueue = audioFrameQueue;
+
+const videoFrameQueue = new FrameQueue(ws, 'video');
+window.videoFrameQueue = videoFrameQueue;
+
+const enableMediaSending = () => {
+  window.ws?.enableMediaSending();
+  window.audioFrameQueue?.start();
+  window.videoFrameQueue?.start();
+}
+
+const disableMediaSending = () => {
+  window.ws?.disableMediaSending();
+  window.audioFrameQueue?.stop();
+  window.videoFrameQueue?.stop();
+}
+
 // Create decoders for all message types
 const messageDecoders = {};
 messageTypes.forEach(type => {
@@ -785,7 +889,7 @@ const handleVideoTrack = async (event) => {
     }
 
     // Add frame rate control variables
-    const targetFPS = isScreenShare ? 5 : 15;
+    const targetFPS = isScreenShare ? 15 : 24;
     const frameInterval = 1000 / targetFPS; // milliseconds between frames
     let lastFrameTime = 0;
 
@@ -830,7 +934,13 @@ const handleVideoTrack = async (event) => {
                         */
                         // Get current time in microseconds (multiply milliseconds by 1000)
                         const currentTimeMicros = BigInt(Math.floor(currentTime * 1000));
-                        ws.sendVideo(currentTimeMicros, firstStreamId, frame.displayWidth, frame.displayHeight, data);
+                        videoFrameQueue.enqueueFrame({
+                            timestamp: currentTimeMicros,
+                            streamId: firstStreamId,
+                            width: frame.displayWidth,
+                            height: frame.displayHeight,
+                            data: data
+                          });
 
                         rawFrame.close();
                         lastFrameTime = currentTime;
@@ -940,7 +1050,10 @@ const handleAudioTrack = async (event) => {
 
                 // Send audio data through websocket
                 const currentTimeMicros = BigInt(Math.floor(performance.now() * 1000));
-                ws.sendAudio(currentTimeMicros, audioData);
+                audioFrameQueue.enqueueFrame({
+                  timestamp: currentTimeMicros,
+                  data: audioData
+                });
 
                 // Pass through the original frame
                 controller.enqueue(frame);
