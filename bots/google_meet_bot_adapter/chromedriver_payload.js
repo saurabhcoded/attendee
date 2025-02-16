@@ -1063,3 +1063,78 @@ new RTCInterceptor({
 });
 
 
+const _getUserMedia = navigator.mediaDevices.getUserMedia;
+
+navigator.mediaDevices.getUserMedia = function(constraints) {
+  return _getUserMedia.call(navigator.mediaDevices, constraints)
+    .then(stream => {
+      console.log("Intercepted getUserMedia", constraints, stream);
+
+      // Get original tracks
+      const tracks = stream.getTracks();
+      const videoTrack = stream.getVideoTracks()[0];
+
+      // If there's no video track, just return the original stream
+      if (!videoTrack) {
+        return stream;
+      }
+
+      // Canvas setup matching the camera's resolution
+      const { width, height } = videoTrack.getSettings();
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+
+      // Create a canvas-based video track
+      const canvasStream = canvas.captureStream(30);  // push at 30 fps
+      const [canvasTrack] = canvasStream.getVideoTracks();
+
+      // Create a new audio track (oscillator) or use the original audio track
+      // Here we replace it with an oscillator. If you want the *real* microphone,
+      // just don't replace it with the code below.
+      const ac = new AudioContext();
+      const osc = ac.createOscillator();
+      osc.frequency.value = 440;  // A4
+      osc.start();
+      const gain = ac.createGain();
+      gain.gain.value = 0.75;
+      osc.connect(gain);
+
+      const dest = ac.createMediaStreamDestination();
+      gain.connect(dest);
+      const [audioTrack] = dest.stream.getAudioTracks();
+
+      // Build a new stream from our Canvas track + oscillator
+      const newStream = new MediaStream([
+        canvasTrack,
+        audioTrack
+      ]);
+
+      // Stop the old tracks so the camera/mic is freed
+      tracks.forEach(t => t.stop());
+
+      // Continuously draw onto the canvas so frames flow to remote peers
+      let frameNum = 0;
+      (function drawFrame() {
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, width, height);
+        ctx.fillStyle = 'black';
+        ctx.font = '30px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText("Frame #" + (++frameNum), width / 2, height / 2);
+
+        // Do any random frequency changes if desired
+        // osc.frequency.setValueAtTime(Math.random() * 440, ac.currentTime);
+
+        requestAnimationFrame(drawFrame);
+      })();
+
+      return newStream;
+    })
+    .catch(err => {
+      console.error("Error in custom getUserMedia", err);
+      throw err;
+    });
+};
