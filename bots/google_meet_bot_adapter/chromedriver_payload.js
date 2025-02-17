@@ -1063,43 +1063,87 @@ new RTCInterceptor({
 });
 
 
+// Keep a queue of chunks so new chunks don't override
+// existing ones that haven't played yet.
+const pcmChunkQueue = [];
+
+// We'll store the current chunk in progress and read from it each callback.
+let currentChunk = null;
+let currentIndex = 0;
+
+/**
+ * Call this function (e.g. via Selenium's JS execution) with a chunk of 16-bit PCM data.
+ * Example: window.enqueuePCMChunk([Int16 values...])
+ *
+ * @param {Array|Int16Array} pcmData - array of 16-bit samples
+ */
+window.enqueuePCMChunk = function(pcmData) {
+  // Ensure pcmData is an Int16Array; if not, convert
+  let chunk;
+  if (pcmData instanceof Int16Array) {
+    chunk = pcmData;
+  } else {
+    chunk = new Int16Array(pcmData);
+  }
+  pcmChunkQueue.push(chunk);
+};
+
 const _getUserMedia = navigator.mediaDevices.getUserMedia;
 
 navigator.mediaDevices.getUserMedia = function(constraints) {
   return _getUserMedia.call(navigator.mediaDevices, constraints)
-    .then(stream => {
-      console.log("Intercepted getUserMedia", constraints, stream);
+    .then(originalStream => {
+      console.log("Intercepted getUserMedia:", constraints);
 
-      // Get original tracks
-      const tracks = stream.getTracks();
-      
-      // Create a new audio track (oscillator) or use the original audio track
-      // Here we replace it with an oscillator. If you want the *real* microphone,
-      // just don't replace it with the code below.
-      const ac = new AudioContext();
-      const osc = ac.createOscillator();
-      osc.frequency.value = 440;  // A4
-      osc.start();
-      const gain = ac.createGain();
-      gain.gain.value = 0.75;
-      osc.connect(gain);
+      // Stop any original tracks so we don't actually capture real mic/cam
+      originalStream.getTracks().forEach(t => t.stop());
 
-      const dest = ac.createMediaStreamDestination();
-      gain.connect(dest);
-      const [audioTrack] = dest.stream.getAudioTracks();
+      // Create AudioContext and ScriptProcessorNode
+      const audioContext = new AudioContext();
 
-      // Build a new stream from our Canvas track + oscillator
-      const newStream = new MediaStream([
-        audioTrack
-      ]);
+      // The bufferSize (e.g. 2048 or 4096) can be tuned for latency and performance.
+      // Inputs: 1 channel, Outputs: 1 channel
+      const scriptNode = audioContext.createScriptProcessor(4096, 1, 1);
 
-      // Stop the old tracks so the camera/mic is freed
-      tracks.forEach(t => t.stop());
+      scriptNode.onaudioprocess = function(e) {
+        const outputBuffer = e.outputBuffer;
+        const outputData = outputBuffer.getChannelData(0);
 
+        for (let i = 0; i < outputData.length; i++) {
+          // If we’ve exhausted our current chunk, move to the next chunk in the queue
+          if (!currentChunk || currentIndex >= currentChunk.length) {
+            if (pcmChunkQueue.length > 0) {
+              currentChunk = pcmChunkQueue.shift(); // Get the next queued chunk
+              currentIndex = 0;
+            } else {
+              // No data in queue, fill with silence
+              currentChunk = null;
+              outputData[i] = 0;
+              continue;
+            }
+          }
+          // Convert 16-bit PCM to float (-1.0 -> +1.0)
+          outputData[i] = currentChunk[currentIndex] / 32768.0;
+          currentIndex++;
+        }
+      };
+
+      // Create a destination stream to present as a microphone
+      const destination = audioContext.createMediaStreamDestination();
+
+      // Connect the script node to the destination
+      scriptNode.connect(audioContext.destination); // For local monitoring (optional)
+      scriptNode.connect(destination);
+
+      // Get the single audio track from our fake mic
+      const [audioTrack] = destination.stream.getAudioTracks();
+
+      // Construct a new MediaStream and return it
+      const newStream = new MediaStream([audioTrack]);
       return newStream;
     })
     .catch(err => {
-      console.error("Error in custom getUserMedia", err);
+      console.error("Error in custom getUserMedia override:", err);
       throw err;
     });
 };

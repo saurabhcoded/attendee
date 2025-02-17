@@ -4,7 +4,7 @@ from .text_to_speech import generate_audio_from_text
 from bots.utils import mp3_to_pcm
 
 class AudioOutputManager:
-    SAMPLE_RATE = 44100
+    SAMPLE_RATE = 48000
 
     def __init__(self, currently_playing_audio_media_request_finished_callback, play_raw_audio_callback):
         self.currently_playing_audio_media_request = None
