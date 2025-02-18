@@ -20,35 +20,60 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 from bots.bot_adapter import BotAdapter
-from bots.google_meet_bot_adapter.google_meet_ui_methods import GoogleMeetUIMethods, UiRetryableException, UiFatalException, UiRequestToJoinDeniedException
+from bots.google_meet_bot_adapter.google_meet_ui_methods import GoogleMeetUIMethods, UiRetryableException, UiRequestToJoinDeniedException
+
+def half_ceil(x):
+    return (x + 1) // 2
 
 def scale_i420(frame, frame_size, new_size):
-    new_width, new_height = new_size
+    """
+    Scales an I420 (YUV 4:2:0) frame from 'frame_size' to 'new_size',
+    handling odd frame widths/heights by using 'ceil' in the chroma planes.
+   
+    :param frame:      A bytes object containing the raw I420 frame data.
+    :param frame_size: (orig_width, orig_height)
+    :param new_size:   (new_width, new_height)
+    :return:           A bytes object with the scaled I420 frame.
+    """
+   
+    # 1) Unpack source / destination dimensions
     orig_width, orig_height = frame_size
+    new_width, new_height = new_size
 
-    # Calculate plane sizes
+    # 2) Compute source plane sizes with rounding up for chroma
+    orig_chroma_width  = half_ceil(orig_width)
+    orig_chroma_height = half_ceil(orig_height)
+
     y_plane_size = orig_width * orig_height
-    uv_plane_size = (orig_width // 2) * (orig_height // 2)
+    uv_plane_size = orig_chroma_width * orig_chroma_height  # for each U or V
 
-    # Extract Y, U, V planes directly from the byte array
-    y = np.frombuffer(frame[0:y_plane_size], dtype=np.uint8)
-    u = np.frombuffer(frame[y_plane_size:y_plane_size + uv_plane_size], dtype=np.uint8)
-    v = np.frombuffer(frame[y_plane_size + uv_plane_size:], dtype=np.uint8)
+    # 3) Extract Y, U, V planes from the byte array
+    y = np.frombuffer(frame[0 : y_plane_size], dtype=np.uint8)
+    u = np.frombuffer(frame[y_plane_size : y_plane_size + uv_plane_size], dtype=np.uint8)
+    v = np.frombuffer(frame[y_plane_size + uv_plane_size : y_plane_size + 2*uv_plane_size], dtype=np.uint8)
 
-    # Reshape planes
+    # 4) Reshape planes
     y = y.reshape(orig_height, orig_width)
-    u = u.reshape(orig_height//2, orig_width//2)
-    v = v.reshape(orig_height//2, orig_width//2)
+    u = u.reshape(orig_chroma_height, orig_chroma_width)
+    v = v.reshape(orig_chroma_height, orig_chroma_width)
 
-    # 2) Determine scale preserving aspect ratio
+    #---------------------------------------------------------
+    # Scale preserving aspect ratio or do letterbox/pillarbox
+    #---------------------------------------------------------
     input_aspect = orig_width / orig_height
     output_aspect = new_width / new_height
 
     if abs(input_aspect - output_aspect) < 1e-6:
-        # Aspect ratios match (or extremely close). Just do a simple stretch to (new_width, new_height).
+        # Same aspect ratio; do a straightforward resize
         scaled_y = cv2.resize(y, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
-        scaled_u = cv2.resize(u, (new_width//2, new_height//2), interpolation=cv2.INTER_LINEAR)
-        scaled_v = cv2.resize(v, (new_width//2, new_height//2), interpolation=cv2.INTER_LINEAR)
+       
+        # For U, V we should scale to half-dimensions (rounded up)
+        # of the new size. But OpenCV requires exact (int) dims, so:
+        target_u_width  = half_ceil(new_width)
+        target_u_height = half_ceil(new_height)
+       
+        scaled_u = cv2.resize(u, (target_u_width, target_u_height), interpolation=cv2.INTER_LINEAR)
+        scaled_v = cv2.resize(v, (target_u_width, target_u_height), interpolation=cv2.INTER_LINEAR)
 
         # Flatten and return
         return np.concatenate([
@@ -58,7 +83,6 @@ def scale_i420(frame, frame_size, new_size):
         ]).astype(np.uint8).tobytes()
 
     # Otherwise, the aspect ratios differ => letterbox or pillarbox
-    # 3) Compute scaled dimensions that fit entirely within (new_width, new_height)
     if input_aspect > output_aspect:
         # The image is relatively wider => match width, shrink height
         scaled_width = new_width
@@ -66,38 +90,41 @@ def scale_i420(frame, frame_size, new_size):
     else:
         # The image is relatively taller => match height, shrink width
         scaled_height = new_height
-        scaled_width = int(round(new_height * input_aspect))
+        scaled_width  = int(round(new_height * input_aspect))
 
-    # 4) Resize Y, U, and V to the scaled dimensions
+    # 5) Resize Y, U, and V to the scaled dimensions
     scaled_y = cv2.resize(y, (scaled_width, scaled_height), interpolation=cv2.INTER_LINEAR)
-    scaled_u = cv2.resize(u, (scaled_width//2, scaled_height//2), interpolation=cv2.INTER_LINEAR)
-    scaled_v = cv2.resize(v, (scaled_width//2, scaled_height//2), interpolation=cv2.INTER_LINEAR)
+   
+    # For U, V, use half-dimensions of the scaled result, rounding up.
+    scaled_u_width  = half_ceil(scaled_width)
+    scaled_u_height = half_ceil(scaled_height)
+    scaled_u = cv2.resize(u, (scaled_u_width, scaled_u_height), interpolation=cv2.INTER_LINEAR)
+    scaled_v = cv2.resize(v, (scaled_u_width, scaled_u_height), interpolation=cv2.INTER_LINEAR)
 
-    # 5) Create the black background only if needed
-    # For I420, black is typically (Y=0, U=128, V=128) or (Y=16, U=128, V=128).
-    # We'll use Y=0, U=128, V=128 for "dark" black.
+    # 6) Create the output buffers. For "dark" black:
+    #    Y=0, U=128, V=128.
     final_y = np.zeros((new_height, new_width), dtype=np.uint8)
-    final_u = np.full((new_height//2, new_width//2), 128, dtype=np.uint8)
-    final_v = np.full((new_height//2, new_width//2), 128, dtype=np.uint8)
+    final_u = np.full((half_ceil(new_height), half_ceil(new_width)), 128, dtype=np.uint8)
+    final_v = np.full((half_ceil(new_height), half_ceil(new_width)), 128, dtype=np.uint8)
 
-    # 6) Compute centering offsets for each plane
-    # For Y-plane
+    # 7) Compute centering offsets for each plane (Y first)
     offset_y = (new_height - scaled_height) // 2
-    offset_x = (new_width - scaled_width) // 2
+    offset_x = (new_width - scaled_width)   // 2
 
-    # Insert Y
-    final_y[offset_y:offset_y+scaled_height, offset_x:offset_x+scaled_width] = scaled_y
+    final_y[offset_y:offset_y+scaled_height,
+            offset_x:offset_x+scaled_width] = scaled_y
 
-    # For U, V planes (subsampled by 2 in each dimension)
+    # Offsets for U and V planes are half of the Y offsets (integer floor)
     offset_y_uv = offset_y // 2
     offset_x_uv = offset_x // 2
 
-    final_u[offset_y_uv:offset_y_uv+(scaled_height//2),
-            offset_x_uv:offset_x_uv+(scaled_width//2)] = scaled_u
-    final_v[offset_y_uv:offset_y_uv+(scaled_height//2),
-            offset_x_uv:offset_x_uv+(scaled_width//2)] = scaled_v
+    final_u[offset_y_uv:offset_y_uv+scaled_u_height,
+            offset_x_uv:offset_x_uv+scaled_u_width] = scaled_u
+    final_v[offset_y_uv:offset_y_uv+scaled_u_height,
+            offset_x_uv:offset_x_uv+scaled_u_width] = scaled_v
 
-    # 7) Flatten back to I420 layout and return bytes
+    # 8) Flatten back to I420 layout and return bytes
+
     return np.concatenate([
         final_y.flatten(),
         final_u.flatten(),
@@ -135,6 +162,7 @@ class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
 
         self.participants_info = {}
         self.only_one_participant_in_meeting_at = None
+        self.video_frame_ticker = 0
 
     def get_participant(self, participant_id):
         if participant_id in self.participants_info:
@@ -214,15 +242,26 @@ class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
                         offset = 16 + stream_id_length
                         width = int.from_bytes(message[offset:offset+4], byteorder='little')
                         height = int.from_bytes(message[offset+4:offset+8], byteorder='little')
-                        #print("video dimensions", width, height)
+                        
+                        # Keep track of the video frame dimensions
+                        if self.video_frame_ticker % 300 == 0:
+                            print("video dimensions", width, height, " message length", len(message) - offset - 8)
+                        self.video_frame_ticker += 1
                     
                         # Convert I420 format to BGR for OpenCV
+                        expected_video_data_length = width * height + 2 * half_ceil(width) * half_ceil(height)
                         video_data = np.frombuffer(message[offset+8:], dtype=np.uint8)
-                        
-                        scaled_i420_frame = scale_i420(video_data, (width, height), (1920, 1080))
-                        if self.wants_any_video_frames_callback() and self.send_frames:                
-                            self.add_video_frame_callback(scaled_i420_frame, timestamp * 1000)
-                        
+
+                        # Check if len(video_data) does not agree with width and height
+                        if len(video_data) == expected_video_data_length:  # I420 format uses 1.5 bytes per pixel
+      
+                            scaled_i420_frame = scale_i420(video_data, (width, height), (1920, 1080))
+                            if self.wants_any_video_frames_callback() and self.send_frames:                
+                                self.add_video_frame_callback(scaled_i420_frame, timestamp * 1000)
+
+                        else:
+                            print("video data length does not agree with width and height", len(video_data), width, height)                        
+
                 elif message_type == 3:  # AUDIO
                     self.last_media_message_processed_time = time.time()
                     if audio_file is not None and len(message) > 12:
@@ -269,17 +308,25 @@ class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
     def send_request_to_join_denied_message(self):
         self.send_message_callback({'message': self.Messages.REQUEST_TO_JOIN_DENIED})
 
-    def send_debug_screenshot_message(self, step, e):
+    def send_debug_screenshot_message(self, step, exception, inner_exception):
         current_time = datetime.datetime.now()
         timestamp = current_time.strftime("%Y%m%d_%H%M%S")
         screenshot_path = f"/tmp/ui_element_not_found_{timestamp}.png"
-        self.driver.save_screenshot(screenshot_path)
+        try:
+            self.driver.save_screenshot(screenshot_path)
+        except Exception as e:
+            print(f"Error saving screenshot: {e}")
+            screenshot_path = None
+
         self.send_message_callback({
             'message': self.Messages.UI_ELEMENT_NOT_FOUND, 
             'step': step, 
             'current_time': current_time, 
             'screenshot_path': screenshot_path,
-            'exception_type': e.__class__.__name__ if e else "original_exception_not_available"
+            'exception_type': exception.__class__.__name__ if exception else "exception_not_available",
+            'exception_message': exception.__str__() if exception else "exception_message_not_available",
+            'inner_exception_type': inner_exception.__class__.__name__ if inner_exception else "inner_exception_not_available",
+            'inner_exception_message': inner_exception.__str__() if inner_exception else "inner_exception_message_not_available"
         })
 
     def init_driver(self):
@@ -288,11 +335,8 @@ class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
         options = uc.ChromeOptions()
 
         options.add_argument("--use-fake-ui-for-media-stream")
-        options.add_argument("--use-fake-device-for-media-stream")
         options.add_argument("--window-size=1920x1080")
         options.add_argument("--no-sandbox")
-        options.add_argument("--disable-setuid-sandbox")
-        options.add_argument("--mute-audio")
         # options.add_argument('--headless=new')
         options.add_argument("--disable-gpu")
         options.add_argument("--disable-extensions")
@@ -307,9 +351,7 @@ class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
                 print(f"Error closing existing driver: {e}")
             self.driver = None
 
-        self.driver = uc.Chrome(service_log_path=log_path, use_subprocess=True, options=options, version_main=132)
-
-        self.driver.set_window_size(1920, 1080)
+        self.driver = uc.Chrome(service_log_path=log_path, use_subprocess=True, options=options, version_main=133)
 
         initial_data_code = f"window.initialData = {{websocketPort: {self.websocket_port}}}"
 
@@ -362,8 +404,8 @@ class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
         print(f"Trying to join google meet meeting at {self.meeting_url}")
 
         num_retries = 0
-        max_retries = 3
-        while num_retries < max_retries: 
+        max_retries = 2
+        while num_retries <= max_retries: 
             try:
                 self.init_driver()
                 self.attempt_to_join_meeting()
@@ -374,21 +416,20 @@ class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
                 self.send_request_to_join_denied_message()
                 return
 
-            except UiFatalException as e:
-                self.send_debug_screenshot_message(e.step, e.original_exception)
-                return
-
             except UiRetryableException as e:
 
                 if num_retries >= max_retries:
-                    print("Failed to join meeting and the exception is retryable but the number of retries exceeded the limit, so returning")
-                    self.send_debug_screenshot_message(e.step, e.original_exception)
+                    print(f"Failed to join meeting and the {e.__class__.__name__} exception is retryable but the number of retries exceeded the limit, so returning")
+                    self.send_debug_screenshot_message(step = e.step, exception = e, inner_exception = e.inner_exception)
                     return
                 
-                print("Failed to join meeting and the exception is retryable so retrying")
+                print(f"Failed to join meeting and the {e.__class__.__name__} exception is retryable so retrying")
 
             num_retries += 1
             sleep(1)
+
+        # Trying making it smaller so GMeet sends smaller video frames
+        self.driver.set_window_size(1920/2, 1080/2)
 
         self.send_message_callback({'message': self.Messages.BOT_JOINED_MEETING})
         self.send_message_callback({'message': self.Messages.BOT_RECORDING_PERMISSION_GRANTED})
@@ -464,15 +505,10 @@ class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
                 return
 
         if self.last_media_message_processed_time is not None:
-            if time.time() - self.last_media_message_processed_time > 30:
-                print("Auto-leaving meeting because there was no media message for 30 seconds")
+            if time.time() - self.last_media_message_processed_time > 300:
+                print("Auto-leaving meeting because there was no media message for 300 seconds")
                 self.leave()
                 return
 
     def send_raw_audio(self, bytes, sample_rate):
-        audio_data = np.frombuffer(bytes, dtype=np.int16)
-        
-        # Play the audio through the audio handler
-        self.driver.execute_script("""
-            playAudio(arguments[0], arguments[1]);
-        """, audio_data.tolist(), sample_rate)
+        print("send_raw_audio not supported in google meet bots")
