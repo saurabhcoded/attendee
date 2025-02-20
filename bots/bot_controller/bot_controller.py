@@ -39,6 +39,7 @@ from .streaming_uploader import StreamingUploader
 gi.require_version("GLib", "2.0")
 from gi.repository import GLib
 
+import logging
 
 class BotController:
     MEETING_TYPE_ZOOM = "zoom"
@@ -559,7 +560,7 @@ class BotController:
                 else:
                     BotEventManager.create_event(bot=self.bot_in_db, event_type=BotEventTypes.MEETING_ENDED)
             else:
-                print("Bot is in FATAL_ERROR state. Bot cannot rejoin once removed. End the meet for all and start meet again with same link")
+                logging.info("Bot is in FATAL_ERROR state. Bot cannot rejoin once removed. End the meet for all and start meet again with same link")
 
             self.cleanup()
             return

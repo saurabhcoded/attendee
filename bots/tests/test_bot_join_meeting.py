@@ -12,6 +12,7 @@ from bots.bot_controller import BotController
 from bots.bot_controller.pipeline_configuration import PipelineConfiguration
 from bots.bot_controller.streaming_uploader import StreamingUploader
 from bots.bots_api_views import send_sync_command
+from bots.bot_adapter import BotAdapter
 from bots.models import (
     Bot,
     BotEventManager,
@@ -1791,12 +1792,12 @@ class TestBotJoinMeeting(TransactionTestCase):
         connection.close()
 
     @patch('deepgram.DeepgramClient')
-    @patch('bots.bot_controller.BotEventManager.create_event')
+    @patch('bots.models.BotEventManager.create_event')
     @patch('bots.zoom_bot_adapter.zoom_bot_adapter.zoom', new_callable=create_mock_zoom_sdk)
     @patch('bots.zoom_bot_adapter.zoom_bot_adapter.jwt')
     def test_bot_in_fatal_error_does_not_create_meeting_ended_event(self, mock_create_event, MockDeepgramClient, mock_zoom_sdk_adapter,mock_jwt):
          # Setup mock objects and bot state
-        bot = Bot.objects.create(state=BotStates.FATAL_ERROR)
+        bot = Bot.objects.create(state=BotStates.FATAL_ERROR, project=self.project)
         controller = BotController(bot.id)
         
         # Set up the necessary mocks for Deepgram, Zoom SDK, etc.
@@ -1811,7 +1812,7 @@ class TestBotJoinMeeting(TransactionTestCase):
         # Capture logs
         with self.assertLogs(level='INFO') as log:
         # Simulate meeting ended message
-            message = {'message': 'MEETING_ENDED'}
+            message = {'message': BotAdapter.Messages.MEETING_ENDED}
             controller.bot_in_db = bot
             controller.individual_audio_input_manager = MagicMock()
             controller.closed_caption_manager = MagicMock()
@@ -1824,7 +1825,7 @@ class TestBotJoinMeeting(TransactionTestCase):
             mock_create_event.assert_not_called()
 
             # Check if the log contains the expected message
-            self.assertIn('Bot is in FATAL_ERROR state. Bot cannot rejoin once removed. End the meet for all and start meet again with same link', log.output)
+            self.assertIn('INFO:root:Bot is in FATAL_ERROR state. Bot cannot rejoin once removed. End the meet for all and start meet again with same link', log.output)
 
             # Verify that cleanup was called
             controller.cleanup.assert_called_once()
