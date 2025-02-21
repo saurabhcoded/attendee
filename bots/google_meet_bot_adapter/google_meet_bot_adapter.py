@@ -180,7 +180,7 @@ class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
         self.only_one_participant_in_meeting_at = None
         self.video_frame_ticker = 0
         self.audio_frame_ticker = 0
-        self.printed_warning_about_audio_message_gap = False
+        self.printed_warning_about_audio_message_gap_at = None
 
         self.automatic_leave_configuration = automatic_leave_configuration
 
@@ -296,16 +296,18 @@ class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
                     current_time_ns = time.perf_counter_ns()
                     if self.last_audio_message_processed_time_ns is not None:
                         time_since_last_audio_message_ns = current_time_ns - self.last_audio_message_processed_time_ns
-                        if self.audio_frame_ticker % 300 == 0:
+                        if self.audio_frame_ticker % 30 == 0:
                             print(f"time_since_last_audio_message: {time_since_last_audio_message_ns / 1000000:.3f} milliseconds")
                         self.audio_frame_ticker += 1
                         # Let's warn if gap is > 50ms
                         if time_since_last_audio_message_ns > 50000000:
-                            if not self.printed_warning_about_audio_message_gap:
+                            if not self.printed_warning_about_audio_message_gap_at:
                                 print(f"WARNING: Unexpected gap in audio messages: {time_since_last_audio_message_ns / 1000000:.3f} milliseconds (expected less than 50ms)")
-                                self.printed_warning_about_audio_message_gap = True
+                                self.printed_warning_about_audio_message_gap_at = current_time_ns
                         else:
-                            self.printed_warning_about_audio_message_gap = False
+                            if self.printed_warning_about_audio_message_gap_at:
+                                print(f"Gap in audio messages is back to normal: {time_since_last_audio_message_ns / 1000000:.3f} milliseconds (expected less than 50ms). Bad period lasted for {(current_time_ns - self.printed_warning_about_audio_message_gap_at) / 1000000:.3f} ms")
+                                self.printed_warning_about_audio_message_gap_at = None
 
                     self.last_media_message_processed_time = current_time
                     self.last_audio_message_processed_time = current_time
