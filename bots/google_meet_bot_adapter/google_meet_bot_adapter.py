@@ -173,11 +173,14 @@ class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
         self.last_websocket_message_processed_time = None
         self.last_media_message_processed_time = None
         self.last_audio_message_processed_time = None
+        self.last_audio_message_processed_time_ns = None
         self.first_buffer_timestamp_ms_offset = time.time() * 1000
 
         self.participants_info = {}
         self.only_one_participant_in_meeting_at = None
         self.video_frame_ticker = 0
+        self.audio_frame_ticker = 0
+        self.printed_warning_about_audio_message_gap = False
 
         self.automatic_leave_configuration = automatic_leave_configuration
 
@@ -289,8 +292,24 @@ class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
                             )
 
                 elif message_type == 3:  # AUDIO
-                    self.last_media_message_processed_time = time.time()
-                    self.last_audio_message_processed_time = time.time()
+                    current_time = time.time()
+                    current_time_ns = time.perf_counter_ns()
+                    if self.last_audio_message_processed_time_ns is not None:
+                        time_since_last_audio_message_ns = current_time_ns - self.last_audio_message_processed_time_ns
+                        if self.audio_frame_ticker % 300 == 0:
+                            print(f"time_since_last_audio_message: {time_since_last_audio_message_ns / 1000000:.3f} milliseconds")
+                        self.audio_frame_ticker += 1
+                        # Let's warn if gap is > 50ms
+                        if time_since_last_audio_message_ns > 50000000:
+                            if not self.printed_warning_about_audio_message_gap:
+                                print(f"WARNING: Unexpected gap in audio messages: {time_since_last_audio_message_ns / 1000000:.3f} milliseconds (expected less than 50ms)")
+                                self.printed_warning_about_audio_message_gap = True
+                        else:
+                            self.printed_warning_about_audio_message_gap = False
+
+                    self.last_media_message_processed_time = current_time
+                    self.last_audio_message_processed_time = current_time
+                    self.last_audio_message_processed_time_ns = current_time_ns
                     if audio_file is not None and len(message) > 12:
                         # Bytes 4-12 contain the timestamp
                         timestamp = int.from_bytes(message[4:12], byteorder="little")
@@ -461,7 +480,7 @@ class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
             sleep(1)
 
         # Trying making it smaller so GMeet sends smaller video frames
-        self.driver.set_window_size(1920 / 2, 1080 / 2)
+        # self.driver.set_window_size(1920 / 2, 1080 / 2)
 
         self.send_message_callback({"message": self.Messages.BOT_JOINED_MEETING})
         self.send_message_callback({"message": self.Messages.BOT_RECORDING_PERMISSION_GRANTED})
