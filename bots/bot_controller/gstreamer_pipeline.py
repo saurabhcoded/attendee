@@ -186,6 +186,10 @@ class GstreamerPipeline:
             if self.start_time_ns is None:
                 self.start_time_ns = current_time_ns
 
+            if current_time_ns < self.start_time_ns:
+                print(f"WARNING: Audio timestamp is before start time: {current_time_ns} - {self.start_time_ns} = {current_time_ns - self.start_time_ns}. Dropping chunk.")
+                return
+
             # Calculate timestamp relative to same start time as video
             buffer.pts = current_time_ns - self.start_time_ns
 
@@ -206,6 +210,10 @@ class GstreamerPipeline:
             # Initialize start time if not set
             if self.start_time_ns is None:
                 self.start_time_ns = current_time_ns
+
+            if current_time_ns < self.start_time_ns:
+                print(f"WARNING: Video timestamp is before start time: {current_time_ns} - {self.start_time_ns} = {current_time_ns - self.start_time_ns}. Dropping frame.")
+                return
 
             # Calculate buffer timestamp relative to start time
             buffer_pts = current_time_ns - self.start_time_ns

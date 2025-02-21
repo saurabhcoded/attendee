@@ -183,6 +183,8 @@ class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
         self.printed_warning_about_audio_message_gap_at = None
 
         self.automatic_leave_configuration = automatic_leave_configuration
+        self.raw_audio_accum = b''
+        self.total_audio_bytes_received = 0
 
     def get_participant(self, participant_id):
         if participant_id in self.participants_info:
@@ -298,6 +300,11 @@ class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
                         time_since_last_audio_message_ns = current_time_ns - self.last_audio_message_processed_time_ns
                         if self.audio_frame_ticker % 30 == 0:
                             print(f"time_since_last_audio_message: {time_since_last_audio_message_ns / 1000000:.3f} milliseconds")
+
+                            # Get total audio bytes sent from JavaScript
+                            total_audio_bytes_sent = self.driver.execute_script("return window.ws?.getTotalAudioBytesSent() || 0;")
+                            print(f"Total audio bytes sent: {total_audio_bytes_sent} total audio bytes received: {self.total_audio_bytes_received}. Difference: {total_audio_bytes_sent - self.total_audio_bytes_received}")
+
                         self.audio_frame_ticker += 1
                         # Let's warn if gap is > 50ms
                         if time_since_last_audio_message_ns > 50000000:
@@ -312,13 +319,15 @@ class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
                     self.last_media_message_processed_time = current_time
                     self.last_audio_message_processed_time = current_time
                     self.last_audio_message_processed_time_ns = current_time_ns
+                    self.total_audio_bytes_received += len(message)
                     if audio_file is not None and len(message) > 12:
                         # Bytes 4-12 contain the timestamp
                         timestamp = int.from_bytes(message[4:12], byteorder="little")
                         # Convert the float32 audio data to int16 for WAV file
                         audio_data = np.frombuffer(message[12:], dtype=np.float32)
+                        self.raw_audio_accum += audio_data.tobytes()
 
-                        if self.wants_any_video_frames_callback() and self.send_frames:
+                        if self.wants_any_video_frames_callback() and self.send_frames and len(self.raw_audio_accum) > 100000:
                             self.add_mixed_audio_chunk_callback(audio_data.tobytes(), timestamp * 1000)
 
                 self.last_websocket_message_processed_time = time.time()
@@ -522,6 +531,7 @@ class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
         try:
             print("disable media sending")
             self.driver.execute_script("window.ws?.disableMediaSending();")
+                        
         except Exception as e:
             print(f"Error during media sending disable: {e}")
 
@@ -546,7 +556,23 @@ class GoogleMeetBotAdapter(BotAdapter, GoogleMeetUIMethods):
                 print(f"Error shutting down websocket server: {e}")
 
         self.cleaned_up = True
-
+        if self.raw_audio_accum:
+            # Convert float32 to int16 PCM
+            audio_data = np.frombuffer(self.raw_audio_accum, dtype=np.float32)
+            # Take only the last 2 seconds of audio (48000 samples * 2)
+            last_n_samples = min(len(audio_data), 48000 * 2)
+            audio_data = audio_data[-last_n_samples:]
+            # Scale to int16 range and convert
+            int16_data = (audio_data * 32767).astype(np.int16)
+            
+            file_name = f"audio_{time.time()}.wav"
+            with wave.open(file_name, "wb") as wav_file:
+                wav_file.setnchannels(1)
+                wav_file.setsampwidth(2)  # 2 bytes for int16
+                wav_file.setframerate(48000)
+                wav_file.writeframes(int16_data.tobytes())
+            print(f"Saved raw audio to {file_name}")
+            print(f"Total audio bytes received: {self.total_audio_bytes_received}")
     def get_first_buffer_timestamp_ms_offset(self):
         return self.first_buffer_timestamp_ms_offset
 

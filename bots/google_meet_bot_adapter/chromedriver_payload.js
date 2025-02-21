@@ -252,6 +252,7 @@ class WebSocketClient {
       this.mediaSendingEnabled = false;
       this.lastVideoFrameTime = performance.now();
       this.blackFrameInterval = null;
+      this.totalAudioBytesSent = 0;
   }
 
   startBlackFrameTimer() {
@@ -295,6 +296,9 @@ class WebSocketClient {
   }
 
   disableMediaSending() {
+
+    
+
     this.mediaSendingEnabled = false;
     this.stopBlackFrameTimer();
   }
@@ -372,6 +376,7 @@ class WebSocketClient {
           
           // Send the binary message
           this.ws.send(message.buffer);
+          this.totalAudioBytesSent += message.length;
       } catch (error) {
           console.error('Error sending WebSocket audio message:', error);
       }
@@ -421,6 +426,10 @@ class WebSocketClient {
       } catch (error) {
           console.error('Error sending WebSocket video message:', error);
       }
+  }
+
+  getTotalAudioBytesSent() {
+    return this.totalAudioBytesSent;
   }
 }
 
@@ -875,8 +884,8 @@ const handleVideoTrack = async (event) => {
 };
 
 const handleAudioTrack = async (event) => {
-  let lastAudioFormat = null;  // Track last seen format
-  
+  let lastAudioFormat = null;
+
   try {
     // Create processor to get raw frames
     const processor = new MediaStreamTrackProcessor({ track: event.track });
@@ -886,8 +895,12 @@ const handleAudioTrack = async (event) => {
     const readable = processor.readable;
     const writable = generator.writable;
 
+    let accumulatedAudioData = new Float32Array();
+    let lastAudioMessageTime = BigInt(0);
+    let accumStartTime = null;
     // Transform stream to intercept frames
     const transformStream = new TransformStream({
+
         async transform(frame, controller) {
             if (!frame) {
                 return;
@@ -903,27 +916,31 @@ const handleAudioTrack = async (event) => {
                 // Copy the audio data
                 const numChannels = frame.numberOfChannels;
                 const numSamples = frame.numberOfFrames;
-                const audioData = new Float32Array(numChannels * numSamples);
                 
-                // Copy data from each channel
+                // Create a mono buffer to store the mixed-down audio
+                const monoData = new Float32Array(numSamples);
+                
+                // Mix down multiple channels to mono
                 for (let channel = 0; channel < numChannels; channel++) {
-                    frame.copyTo(audioData.subarray(channel * numSamples, (channel + 1) * numSamples), 
-                              { planeIndex: channel });
+                    const channelData = new Float32Array(numSamples);
+                    frame.copyTo(channelData, { planeIndex: channel });
+                    
+                    // Add each channel's contribution to the mono mix
+                    for (let i = 0; i < numSamples; i++) {
+                        monoData[i] += channelData[i] / numChannels;
+                    }
                 }
-
-                // console.log('frame', frame)
-                // console.log('audioData', audioData)
 
                 // Check if audio format has changed
                 const currentFormat = {
-                    numberOfChannels: frame.numberOfChannels,
+                    numberOfChannels: 1, // Always report as mono after mixing
+                    originalNumberOfChannels: frame.numberOfChannels,
                     numberOfFrames: frame.numberOfFrames,
                     sampleRate: frame.sampleRate,
                     format: frame.format,
                     duration: frame.duration
                 };
 
-                // If format is different from last seen format, send update
                 if (!lastAudioFormat || 
                     JSON.stringify(currentFormat) !== JSON.stringify(lastAudioFormat)) {
                     lastAudioFormat = currentFormat;
@@ -933,14 +950,31 @@ const handleAudioTrack = async (event) => {
                     });
                 }
 
-                // If the audioData buffer is all zeros, then we don't want to send it
-                if (audioData.every(value => value === 0)) {
+                // Skip silent audio
+                if (monoData.every(value => value === 0)) {
+                    controller.enqueue(frame);
                     return;
                 }
 
                 // Send audio data through websocket
                 const currentTimeMicros = BigInt(Math.floor(performance.now() * 1000));
-                ws.sendAudio(currentTimeMicros, audioData);
+                
+                // Accumulate mono audio data
+                let newAccumulatedData = new Float32Array(accumulatedAudioData.length + monoData.length);
+                newAccumulatedData.set(accumulatedAudioData);
+                newAccumulatedData.set(monoData, accumulatedAudioData.length);
+                accumulatedAudioData = newAccumulatedData;
+
+                if (accumStartTime === null) {
+                    accumStartTime = currentTimeMicros;
+                }
+
+                if (currentTimeMicros - lastAudioMessageTime > 25000*4) {
+                    ws.sendAudio(accumStartTime, accumulatedAudioData);
+                    accumulatedAudioData = new Float32Array();
+                    lastAudioMessageTime = currentTimeMicros;
+                    accumStartTime = null;
+                }
 
                 // Pass through the original frame
                 controller.enqueue(frame);
