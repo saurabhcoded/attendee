@@ -1,70 +1,55 @@
 // Audio mixer
+
+const mixedSamplesArrayDuration_seconds = 600;
+const mixedSamplesArrayDuration_samples = mixedSamplesArrayDuration_seconds * 48000;
+
 class AudioMixer {
     constructor(samplesPerFrame, sampleRate) {
-        this.audioFrames = [[], [], []];
         this.samplesPerFrame = samplesPerFrame;
         this.sampleRate = sampleRate;
-        this.lastSampleTime = null;
-        // The audio will be MONO
+        this.mixedSamplesArray = new Float32Array(mixedSamplesArrayDuration_samples);
+        this.mixedSamplesNumsArray = new Float32Array(mixedSamplesArrayDuration_samples);
+        this.mixedSamplesArrayStartTime = performance.now();
+        this.mixedSamplesArrayLastGrabIndex = 0;
+        this.framesToInsert = []
+        this.lastInsertedFrameTimePerSource = new Map();
     }
 
     addAudioFrame(audioFrame, sourceIndex) {
-        if (this.audioFrames[sourceIndex].length === 0) {
-            this.audioFrames[sourceIndex].push(audioFrame);
-        } else {
-            const lastFrame = this.audioFrames[sourceIndex][this.audioFrames[sourceIndex].length - 1];
-            const lastFrameEndTime = lastFrame.timestamp + 10;
-
-            if (lastFrameEndTime > audioFrame.timestamp) {
-                this.audioFrames[sourceIndex].push({timestamp: lastFrameEndTime, data: audioFrame.data});
-            } else {
-                this.audioFrames[sourceIndex].push(audioFrame);
-            }
-        }
+        this.framesToInsert.push({audioFrame, sourceIndex});
     }
 
     getMixedAudioFrame() {
-        const currentTime = performance.now() - 100;
-        const mixedFrameStartTime = this.lastSampleTime || currentTime;
-        this.lastSampleTime = currentTime;
-        const mixedFrameDurationMilliSeconds = 10;
-        const mixedFrameEndTime = mixedFrameStartTime + mixedFrameDurationMilliSeconds;
-        const sampleWidthMilliseconds = mixedFrameDurationMilliSeconds / this.samplesPerFrame;
-
-        const mixedFrame = new Float32Array(this.samplesPerFrame);
-        const mixedFrameNums = new Float32Array(this.samplesPerFrame);
-
-        // Remove audio frames whose end is before the mixed frame start time
-        // Filter each source's frames separately
-        this.audioFrames = this.audioFrames.map(sourceFrames => 
-            sourceFrames.filter(frame => 
-                frame.timestamp + frame.data.length * 1000.0 / this.sampleRate > mixedFrameStartTime
-            )
-        );
-
-        // Each entry in audioFrames has a timestamp and a data attribute
-        for(let j = 0; j < this.audioFrames.length; j++) {
-            for(let k = 0; k < this.audioFrames[j].length; k++) {
-                const frameStartTime = this.audioFrames[j][k].timestamp;
-                const outputOffset = Math.floor((frameStartTime - mixedFrameStartTime) / sampleWidthMilliseconds);
-                for(let i = 0; i < this.samplesPerFrame; i++) {
-                    const outIndex = outputOffset + i;
-                    if (outIndex >= 0 && outIndex < this.samplesPerFrame) {
-                        mixedFrame[outIndex] += this.audioFrames[j][k].data[i];
-                        mixedFrameNums[outIndex]++;
-                        this.audioFrames[j][k].data[i] = 0;
-                    }
-                }
+        for (const {audioFrame, sourceIndex} of this.framesToInsert) {
+            let frameStartTime = audioFrame.timestamp;
+            if (this.lastInsertedFrameTimePerSource.has(sourceIndex)) {
+                frameStartTime = Math.max(frameStartTime, this.lastInsertedFrameTimePerSource.get(sourceIndex) + 10);
             }
+            this.lastInsertedFrameTimePerSource.set(sourceIndex, frameStartTime);
+
+            const outputOffset = Math.floor((frameStartTime - this.mixedSamplesArrayStartTime) / (1000.0 / this.sampleRate));
+            if (outputOffset < 0) {
+                return;
+            }
+            for (let i = 0; i < this.samplesPerFrame; i++) {
+                this.mixedSamplesArray[outputOffset + i] = (this.mixedSamplesArray[outputOffset + i] * this.mixedSamplesNumsArray[outputOffset + i] + audioFrame.data[i]) / (this.mixedSamplesNumsArray[outputOffset + i] + 1);
+                this.mixedSamplesNumsArray[outputOffset + i]++;
+            }
+        }   
+        this.framesToInsert = [];
+
+        const grabEndTime = performance.now();
+        const grabEndIndex = Math.floor((grabEndTime - this.mixedSamplesArrayStartTime) / (1000.0 / this.sampleRate));
+        if (grabEndIndex < 0) {
+            return null;
         }
 
-        for(let i = 0; i < this.samplesPerFrame; i++) {
-            if (mixedFrameNums[i] > 0) {
-                mixedFrame[i] /= mixedFrameNums[i];
-            }
+        const result = {
+            timestamp: BigInt(Math.floor(this.mixedSamplesArrayStartTime * 1000 + 1000 *this.mixedSamplesArrayLastGrabIndex * (1000.0 / this.sampleRate))),
+            data: this.mixedSamplesArray.slice(this.mixedSamplesArrayLastGrabIndex, grabEndIndex)
         }
-
-        return {timestamp: BigInt(Math.floor(mixedFrameStartTime * 1000)), data: mixedFrame};
+        this.mixedSamplesArrayLastGrabIndex = grabEndIndex;
+        return result;
     }
 }
 
