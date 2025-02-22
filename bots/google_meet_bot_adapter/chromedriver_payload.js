@@ -1,3 +1,73 @@
+// Audio mixer
+class AudioMixer {
+    constructor(samplesPerFrame, sampleRate) {
+        this.audioFrames = [[], [], []];
+        this.samplesPerFrame = samplesPerFrame;
+        this.sampleRate = sampleRate;
+        this.lastSampleTime = null;
+        // The audio will be MONO
+    }
+
+    addAudioFrame(audioFrame, sourceIndex) {
+        if (this.audioFrames[sourceIndex].length === 0) {
+            this.audioFrames[sourceIndex].push(audioFrame);
+        } else {
+            const lastFrame = this.audioFrames[sourceIndex][this.audioFrames[sourceIndex].length - 1];
+            const lastFrameEndTime = lastFrame.timestamp + 10;
+
+            if (lastFrameEndTime > audioFrame.timestamp) {
+                this.audioFrames[sourceIndex].push({timestamp: lastFrameEndTime, data: audioFrame.data});
+            } else {
+                this.audioFrames[sourceIndex].push(audioFrame);
+            }
+        }
+    }
+
+    getMixedAudioFrame() {
+        const currentTime = performance.now() - 100;
+        const mixedFrameStartTime = this.lastSampleTime || currentTime;
+        this.lastSampleTime = currentTime;
+        const mixedFrameDurationMilliSeconds = 10;
+        const mixedFrameEndTime = mixedFrameStartTime + mixedFrameDurationMilliSeconds;
+        const sampleWidthMilliseconds = mixedFrameDurationMilliSeconds / this.samplesPerFrame;
+
+        const mixedFrame = new Float32Array(this.samplesPerFrame);
+        const mixedFrameNums = new Float32Array(this.samplesPerFrame);
+
+        // Remove audio frames whose end is before the mixed frame start time
+        // Filter each source's frames separately
+        this.audioFrames = this.audioFrames.map(sourceFrames => 
+            sourceFrames.filter(frame => 
+                frame.timestamp + frame.data.length * 1000.0 / this.sampleRate > mixedFrameStartTime
+            )
+        );
+
+        // Each entry in audioFrames has a timestamp and a data attribute
+        for(let j = 0; j < this.audioFrames.length; j++) {
+            for(let k = 0; k < this.audioFrames[j].length; k++) {
+                const frameStartTime = this.audioFrames[j][k].timestamp;
+                const outputOffset = Math.floor((frameStartTime - mixedFrameStartTime) / sampleWidthMilliseconds);
+                for(let i = 0; i < this.samplesPerFrame; i++) {
+                    const outIndex = outputOffset + i;
+                    if (outIndex >= 0 && outIndex < this.samplesPerFrame) {
+                        mixedFrame[outIndex] += this.audioFrames[j][k].data[i];
+                        mixedFrameNums[outIndex]++;
+                        this.audioFrames[j][k].data[i] = 0;
+                    }
+                }
+            }
+        }
+
+        for(let i = 0; i < this.samplesPerFrame; i++) {
+            if (mixedFrameNums[i] > 0) {
+                mixedFrame[i] /= mixedFrameNums[i];
+            }
+        }
+
+        return {timestamp: BigInt(Math.floor(mixedFrameStartTime * 1000)), data: mixedFrame};
+    }
+}
+
 // Video track manager
 class VideoTrackManager {
     constructor(ws) {
@@ -252,6 +322,7 @@ class WebSocketClient {
       this.mediaSendingEnabled = false;
       this.lastVideoFrameTime = performance.now();
       this.blackFrameInterval = null;
+      this.audioMixerInterval = null;
   }
 
   startBlackFrameTimer() {
@@ -282,21 +353,43 @@ class WebSocketClient {
     }, 250);
   }
 
-    stopBlackFrameTimer() {
-        if (this.blackFrameInterval) {
-            clearInterval(this.blackFrameInterval);
-            this.blackFrameInterval = null;
+  stopBlackFrameTimer() {
+      if (this.blackFrameInterval) {
+          clearInterval(this.blackFrameInterval);
+          this.blackFrameInterval = null;
+      }
+  }
+
+  startAudioMixerTimer() {
+    if (this.audioMixerInterval) return; // Don't start if already running
+    console.log('starting audio mixer timer audioMixer', audioMixer);
+    this.audioMixerInterval = setInterval(() => {
+        try {
+            const mixedFrame = audioMixer.getMixedAudioFrame();
+            this.sendAudio(mixedFrame.timestamp, mixedFrame.data);
+        } catch (error) {
+            console.error('Error in audio mixer timer:', error);
         }
+    }, 10);
+  }
+
+  stopAudioMixerTimer() {
+    if (this.audioMixerInterval) {
+        clearInterval(this.audioMixerInterval);
+        this.audioMixerInterval = null;
     }
+  }
 
   enableMediaSending() {
     this.mediaSendingEnabled = true;
     this.startBlackFrameTimer();
+    this.startAudioMixerTimer();
   }
 
   disableMediaSending() {
     this.mediaSendingEnabled = false;
     this.stopBlackFrameTimer();
+    this.stopAudioMixerTimer();
   }
 
   handleMessage(data) {
@@ -674,6 +767,7 @@ window.ws = ws;
 const userManager = new UserManager(ws);
 const captionManager = new CaptionManager(ws);
 const videoTrackManager = new VideoTrackManager(ws);
+const audioMixer = new AudioMixer(480, 48000);
 
 // Create decoders for all message types
 const messageDecoders = {};
@@ -886,6 +980,8 @@ const handleAudioTrack = async (event) => {
     const readable = processor.readable;
     const writable = generator.writable;
 
+    const firstStreamId = event.streams[0]?.id;
+
     // Transform stream to intercept frames
     const transformStream = new TransformStream({
         async transform(frame, controller) {
@@ -957,8 +1053,7 @@ const handleAudioTrack = async (event) => {
                 }
 
                 // Send audio data through websocket
-                const currentTimeMicros = BigInt(Math.floor(performance.now() * 1000));
-                ws.sendAudio(currentTimeMicros, audioData);
+                audioMixer.addAudioFrame({timestamp: performance.now(), data: audioData}, firstStreamId % 3);
 
                 // Pass through the original frame
                 controller.enqueue(frame);
