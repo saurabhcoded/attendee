@@ -38,15 +38,27 @@ class AudioMixer {
         }   
         this.framesToInsert = [];
 
-        const grabEndTime = performance.now();
+        const grabEndTime = performance.now() - 250;
         const grabEndIndex = Math.floor((grabEndTime - this.mixedSamplesArrayStartTime) / (1000.0 / this.sampleRate));
+
         if (grabEndIndex < 0) {
             return null;
         }
 
+        let mixedData = this.mixedSamplesArray.slice(this.mixedSamplesArrayLastGrabIndex, grabEndIndex);
+
+        if (mixedData.every(value => value === 0)) {
+            return null;
+        }
+
+        const firstNonZeroIndex = mixedData.findIndex(value => value !== 0);
+        if (firstNonZeroIndex !== -1) {
+            mixedData = mixedData.slice(firstNonZeroIndex);
+        }
+
         const result = {
-            timestamp: BigInt(Math.floor(this.mixedSamplesArrayStartTime * 1000 + 1000 *this.mixedSamplesArrayLastGrabIndex * (1000.0 / this.sampleRate))),
-            data: this.mixedSamplesArray.slice(this.mixedSamplesArrayLastGrabIndex, grabEndIndex)
+            timestamp: BigInt(Math.floor(this.mixedSamplesArrayStartTime * 1000 + 1000 *(this.mixedSamplesArrayLastGrabIndex + firstNonZeroIndex) * (1000.0 / this.sampleRate))),
+            data: mixedData
         }
         this.mixedSamplesArrayLastGrabIndex = grabEndIndex;
         return result;
@@ -351,7 +363,9 @@ class WebSocketClient {
     this.audioMixerInterval = setInterval(() => {
         try {
             const mixedFrame = audioMixer.getMixedAudioFrame();
-            this.sendAudio(mixedFrame.timestamp, mixedFrame.data);
+            if (mixedFrame) {
+                this.sendAudio(mixedFrame.timestamp, mixedFrame.data);
+            }
         } catch (error) {
             console.error('Error in audio mixer timer:', error);
         }
