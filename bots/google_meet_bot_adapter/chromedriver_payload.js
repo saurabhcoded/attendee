@@ -1098,48 +1098,101 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
       // Stop any original tracks so we don't actually capture real mic/cam
       originalStream.getTracks().forEach(t => t.stop());
 
-      // Create AudioContext and ScriptProcessorNode
-      const audioContext = new AudioContext();
+      // Create a new MediaStream to return
+      const newStream = new MediaStream();
 
-      // The bufferSize (e.g. 2048 or 4096) can be tuned for latency and performance.
-      // Inputs: 1 channel, Outputs: 1 channel
-      const scriptNode = audioContext.createScriptProcessor(4096, 1, 1);
+      // If audio is requested, add our fake audio track
+      if (constraints.audio) {
+        // Create AudioContext and ScriptProcessorNode
+        const audioContext = new AudioContext();
+        const scriptNode = audioContext.createScriptProcessor(4096, 1, 1);
 
-      scriptNode.onaudioprocess = function(e) {
-        const outputBuffer = e.outputBuffer;
-        const outputData = outputBuffer.getChannelData(0);
+        scriptNode.onaudioprocess = function(e) {
+          const outputBuffer = e.outputBuffer;
+          const outputData = outputBuffer.getChannelData(0);
 
-        for (let i = 0; i < outputData.length; i++) {
-          // If we’ve exhausted our current chunk, move to the next chunk in the queue
-          if (!currentChunk || currentIndex >= currentChunk.length) {
-            if (pcmChunkQueue.length > 0) {
-              currentChunk = pcmChunkQueue.shift(); // Get the next queued chunk
-              currentIndex = 0;
-            } else {
-              // No data in queue, fill with silence
-              currentChunk = null;
-              outputData[i] = 0;
-              continue;
+          for (let i = 0; i < outputData.length; i++) {
+            // If we've exhausted our current chunk, move to the next chunk in the queue
+            if (!currentChunk || currentIndex >= currentChunk.length) {
+              if (pcmChunkQueue.length > 0) {
+                currentChunk = pcmChunkQueue.shift(); // Get the next queued chunk
+                currentIndex = 0;
+              } else {
+                // No data in queue, fill with silence
+                currentChunk = null;
+                outputData[i] = 0;
+                continue;
+              }
             }
+            // Convert 16-bit PCM to float (-1.0 -> +1.0)
+            outputData[i] = currentChunk[currentIndex] / 32768.0;
+            currentIndex++;
           }
-          // Convert 16-bit PCM to float (-1.0 -> +1.0)
-          outputData[i] = currentChunk[currentIndex] / 32768.0;
-          currentIndex++;
+        };
+
+        // Create a destination stream to present as a microphone
+        const destination = audioContext.createMediaStreamDestination();
+
+        // Connect the script node to the destination
+        scriptNode.connect(audioContext.destination); // For local monitoring (optional)
+        scriptNode.connect(destination);
+
+        // Get the single audio track from our fake mic
+        const [audioTrack] = destination.stream.getAudioTracks();
+        newStream.addTrack(audioTrack);
+      }
+
+      // If video is requested, add our fake video track
+      if (constraints.video) {
+        // Create a canvas for our fake video
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Set canvas size based on constraints or default to 640x480
+        canvas.width = (constraints.video && constraints.video.width) ? 
+                        constraints.video.width.ideal || 640 : 640;
+        canvas.height = (constraints.video && constraints.video.height) ? 
+                         constraints.video.height.ideal || 480 : 480;
+        
+        // Create a simple pattern - colored rectangle that moves around
+        let x = 0;
+        let y = 0;
+        let dirX = 2;
+        let dirY = 2;
+        
+        // Draw function to create a simple animation
+        function drawPattern() {
+          // Clear canvas
+          ctx.fillStyle = 'black';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          
+          // Draw a colored rectangle
+          ctx.fillStyle = 'blue';
+          ctx.fillRect(x, y, 100, 100);
+          
+          // Add some text
+          ctx.fillStyle = 'white';
+          ctx.font = '20px Arial';
+          ctx.fillText('Fake Video', canvas.width/2 - 50, canvas.height/2);
+          
+          // Move the rectangle
+          x += dirX;
+          y += dirY;
+          
+          // Bounce off edges
+          if (x <= 0 || x + 100 >= canvas.width) dirX *= -1;
+          if (y <= 0 || y + 100 >= canvas.height) dirY *= -1;
         }
-      };
+        
+        // Update the canvas at 30fps
+        setInterval(drawPattern, 1000/30);
+        
+        // Create a video track from the canvas
+        const videoStream = canvas.captureStream(30); // 30fps
+        const [videoTrack] = videoStream.getVideoTracks();
+        newStream.addTrack(videoTrack);
+      }
 
-      // Create a destination stream to present as a microphone
-      const destination = audioContext.createMediaStreamDestination();
-
-      // Connect the script node to the destination
-      scriptNode.connect(audioContext.destination); // For local monitoring (optional)
-      scriptNode.connect(destination);
-
-      // Get the single audio track from our fake mic
-      const [audioTrack] = destination.stream.getAudioTracks();
-
-      // Construct a new MediaStream and return it
-      const newStream = new MediaStream([audioTrack]);
       return newStream;
     })
     .catch(err => {
