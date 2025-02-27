@@ -73,6 +73,16 @@
     .bold {
         font-weight: bold;
     }
+    /* Make time display always visible */
+    .video-js .vjs-time-control {
+        display: block !important;
+    }
+    .video-js .vjs-current-time,
+    .video-js .vjs-duration,
+    .video-js .vjs-time-divider {
+        display: block !important;
+        padding: 0 0.3em;
+    }
 </style>
 
 <div class="container mt-4">
@@ -163,6 +173,7 @@
                                         width="640"
                                         height="360"
                                         data-duration-seconds="{{ recording.duration_seconds }}"
+                                        disablePictureInPicture
                                     >
                                         <source src="{{ recording.url }}">
                                         <p class="vjs-no-js">
@@ -244,7 +255,13 @@
     // Then initialize the player and store it in a window variable
     window.player = videojs('recording-video', {
         responsive: true,
-        fluid: true
+        fluid: true,
+        controlBar: {
+            remainingTimeDisplay: false,
+            currentTimeDisplay: true,
+            timeDivider: true,
+            durationDisplay: true
+        }
     });
 
     window.player.ready(function() {      
