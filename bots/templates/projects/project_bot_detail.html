@@ -156,21 +156,20 @@
                                 </div>
                                 <div class="video-column">
                                     <video 
-                                    id="recording-video"
-                                    class="video-js vjs-default-skin vjs-big-play-button vjs-fluid"
-                                    controls
-                                    preload="auto"
-                                    width="640"
-                                    height="360"
-                                    data-duration-seconds="{{ recording.duration_seconds }}"
-                                    data-setup='{"html5": {"nativeTextTracks": false}}'>
-                                    <source src="{{ recording.url }}">
-                                    <p class="vjs-no-js">
-                                      To view this video please enable JavaScript, and consider upgrading to a
-                                      web browser that supports HTML5 video
-                                    </p>
-                                  </video>
-
+                                        id="recording-video"
+                                        class="video-js vjs-default-skin vjs-fluid"
+                                        controls
+                                        preload="auto"
+                                        width="640"
+                                        height="360"
+                                        data-duration-seconds="{{ recording.duration_seconds }}"
+                                    >
+                                        <source src="{{ recording.url }}">
+                                        <p class="vjs-no-js">
+                                            To view this video please enable JavaScript, and consider upgrading to a
+                                            web browser that supports HTML5 video
+                                        </p>
+                                    </video>
                                 </div>
                             </div>
                         {% else %}
@@ -236,45 +235,25 @@
 </div>
 <link href="https://cdnjs.cloudflare.com/ajax/libs/video.js/7.20.3/video-js.min.css" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/video.js/7.20.3/video.min.js"></script>
-
 <script>
-    
-    var player = videojs('recording-video', {
-      responsive: true,
-      fluid: true,
-      html5: {
-        hls: {
-          overrideNative: true
-        },
-        nativeAudioTracks: false,
-        nativeVideoTracks: false
-      }
+    // First, check if player already exists and dispose it
+    if (window.player) {
+        window.player.dispose();
+    }
+
+    // Then initialize the player and store it in a window variable
+    window.player = videojs('recording-video', {
+        responsive: true,
+        fluid: true
     });
 
-    player.ready(function() {
-      console.log('Player is ready');
-        const recordingDurationSeconds = player.el().dataset.durationSeconds;
-        console.log('Recording duration seconds:', recordingDurationSeconds);
-        player.duration(recordingDurationSeconds);
-      
-      // Optional: Monitor buffering and loading
-      player.on('waiting', function() {
-        console.log('Video is buffering');
+    window.player.ready(function() {      
+      window.player.on('canplay', function() {
+        const recordingDurationSeconds = window.player.el().dataset.durationSeconds;
+        if (recordingDurationSeconds) {
+            window.player.duration(recordingDurationSeconds);
+        }
       });
-      
-      player.on('canplay', function() {
-        console.log('Video can be played');
-        const recordingDurationSeconds = player.el().dataset.durationSeconds;
-        console.log('Recording duration seconds:', recordingDurationSeconds);
-        player.duration(recordingDurationSeconds);
-      });
-      
-      // Error handling
-      player.on('error', function(e) {
-        console.error('Video player error:', player.error());
-      });
-
-
     });
 
     function seekVideo(element, timestamp_ms) {
