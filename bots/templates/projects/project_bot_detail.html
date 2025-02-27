@@ -162,6 +162,7 @@
                                     preload="auto"
                                     width="640"
                                     height="360"
+                                    data-duration-seconds="{{ recording.duration_seconds }}"
                                     data-setup='{"html5": {"nativeTextTracks": false}}'>
                                     <source src="{{ recording.url }}">
                                     <p class="vjs-no-js">
@@ -236,9 +237,6 @@
 <link href="https://cdnjs.cloudflare.com/ajax/libs/video.js/7.20.3/video-js.min.css" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/video.js/7.20.3/video.min.js"></script>
 
-<!-- Optional: Include HLS support for broader compatibility -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/videojs-contrib-hls/5.15.0/videojs-contrib-hls.min.js"></script>
-
 <script>
     
     var player = videojs('recording-video', {
@@ -255,6 +253,9 @@
 
     player.ready(function() {
       console.log('Player is ready');
+        const recordingDurationSeconds = player.el().dataset.durationSeconds;
+        console.log('Recording duration seconds:', recordingDurationSeconds);
+        player.duration(recordingDurationSeconds);
       
       // Optional: Monitor buffering and loading
       player.on('waiting', function() {
@@ -263,12 +264,17 @@
       
       player.on('canplay', function() {
         console.log('Video can be played');
+        const recordingDurationSeconds = player.el().dataset.durationSeconds;
+        console.log('Recording duration seconds:', recordingDurationSeconds);
+        player.duration(recordingDurationSeconds);
       });
       
       // Error handling
       player.on('error', function(e) {
         console.error('Video player error:', player.error());
       });
+
+
     });
 
     function seekVideo(element, timestamp_ms) {

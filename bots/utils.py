@@ -265,10 +265,15 @@ def generate_recordings_json_for_bot_detail_view(bot):
     for recording in bot.recordings.all():
         if recording.state != RecordingStates.COMPLETE:
             continue
+        if recording.started_at and recording.completed_at:
+            duration_seconds = (recording.completed_at - recording.started_at).total_seconds()
+        else:
+            duration_seconds = None
         recordings_data.append(
             {
                 "state": recording.state,
                 "url": recording.url,
+                "duration_seconds": duration_seconds,
                 "utterances": generate_utterance_json_for_bot_detail_view(recording),
             }
         )
