@@ -247,6 +247,15 @@
 <link href="https://cdnjs.cloudflare.com/ajax/libs/video.js/7.20.3/video-js.min.css" rel="stylesheet">
 <script>
     function initializePlayer() {
+        // Wait for the element to be available
+        const videoElement = document.getElementById('recording-video');
+        if (!videoElement) {
+            // If element is not ready, try again in 100ms
+            console.log('Video element not ready, trying again in 100ms');
+            setTimeout(initializePlayer, 100);
+            return;
+        }
+
         // First, check if player already exists and dispose it
         if (window.player) {
             window.player.dispose();
@@ -265,12 +274,12 @@
         });
 
         window.player.ready(function() {      
-        window.player.on('canplay', function() {
-            const recordingDurationSeconds = window.player.el().dataset.durationSeconds;
-            if (recordingDurationSeconds) {
-                window.player.duration(recordingDurationSeconds);
-            }
-        });
+            window.player.on('canplay', function() {
+                const recordingDurationSeconds = window.player.el().dataset.durationSeconds;
+                if (recordingDurationSeconds) {
+                    window.player.duration(recordingDurationSeconds);
+                }
+            });
         });
     }
 
