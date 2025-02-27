@@ -245,33 +245,34 @@
     </div>
 </div>
 <link href="https://cdnjs.cloudflare.com/ajax/libs/video.js/7.20.3/video-js.min.css" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/video.js/7.20.3/video.min.js"></script>
 <script>
-    // First, check if player already exists and dispose it
-    if (window.player) {
-        window.player.dispose();
+    function initializePlayer() {
+        // First, check if player already exists and dispose it
+        if (window.player) {
+            window.player.dispose();
+        }
+
+        // Then initialize the player and store it in a window variable
+        window.player = videojs('recording-video', {
+            responsive: true,
+            fluid: true,
+            controlBar: {
+                remainingTimeDisplay: false,
+                currentTimeDisplay: true,
+                timeDivider: true,
+                durationDisplay: true
+            }
+        });
+
+        window.player.ready(function() {      
+        window.player.on('canplay', function() {
+            const recordingDurationSeconds = window.player.el().dataset.durationSeconds;
+            if (recordingDurationSeconds) {
+                window.player.duration(recordingDurationSeconds);
+            }
+        });
+        });
     }
-
-    // Then initialize the player and store it in a window variable
-    window.player = videojs('recording-video', {
-        responsive: true,
-        fluid: true,
-        controlBar: {
-            remainingTimeDisplay: false,
-            currentTimeDisplay: true,
-            timeDivider: true,
-            durationDisplay: true
-        }
-    });
-
-    window.player.ready(function() {      
-      window.player.on('canplay', function() {
-        const recordingDurationSeconds = window.player.el().dataset.durationSeconds;
-        if (recordingDurationSeconds) {
-            window.player.duration(recordingDurationSeconds);
-        }
-      });
-    });
 
     function seekVideo(element, timestamp_ms) {
         const container = element.closest('.recording-container');
@@ -347,4 +348,5 @@
         });
     });
 </script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/video.js/7.20.3/video.min.js" onload="initializePlayer()"></script>
 {% endblock %}
