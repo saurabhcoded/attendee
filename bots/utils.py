@@ -268,7 +268,7 @@ def generate_recordings_json_for_bot_detail_view(bot):
         if recording.started_at and recording.completed_at:
             duration_seconds = (recording.completed_at - recording.started_at).total_seconds()
         else:
-            duration_seconds = None
+            duration_seconds = ""
         recordings_data.append(
             {
                 "state": recording.state,
