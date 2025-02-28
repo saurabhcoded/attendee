@@ -36,6 +36,7 @@ from .individual_audio_input_manager import IndividualAudioInputManager
 from .pipeline_configuration import PipelineConfiguration
 from .rtmp_client import RTMPClient
 from .streaming_uploader import StreamingUploader
+from .video_post_processor import VideoPostProcessor
 
 gi.require_version("GLib", "2.0")
 from gi.repository import GLib
@@ -192,7 +193,10 @@ class BotController:
             print("Telling streaming uploader to cleanup...")
             self.streaming_uploader.complete_upload()
             self.recording_file_saved(self.streaming_uploader.key)
-            self.streaming_uploader_post_process_file()
+
+            # Re-upload the video to S3 with the moov atom at the beginning
+            video_processor = VideoPostProcessor(os.environ.get("AWS_RECORDING_STORAGE_BUCKET_NAME"))
+            video_processor.process_video(self.streaming_uploader.key)
 
         if self.bot_in_db.state == BotStates.POST_PROCESSING:
             BotEventManager.create_event(bot=self.bot_in_db, event_type=BotEventTypes.POST_PROCESSING_COMPLETED)
@@ -260,6 +264,12 @@ class BotController:
             num_audio_sources=self.get_num_audio_sources(),
         )
         self.gstreamer_pipeline.setup()
+
+        self.streaming_uploader = StreamingUploader(
+            os.environ.get("AWS_RECORDING_STORAGE_BUCKET_NAME"),
+            self.get_recording_filename(),
+        )
+        self.streaming_uploader.start_upload()
 
         self.adapter = self.get_bot_adapter()
 

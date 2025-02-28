@@ -168,7 +168,7 @@ class CreateBotSerializer(serializers.Serializer):
     recording_settings = RecordingSettingsJSONField(
         help_text="The settings for the bot's recording. Either {'format': 'webm'} or {'format': 'mp4'}.",
         required=False,
-        default={"format": RecordingFormats.WEBM},
+        default={"format": RecordingFormats.MP4},
     )
 
     RECORDING_SETTINGS_SCHEMA = {
