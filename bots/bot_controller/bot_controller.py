@@ -194,9 +194,10 @@ class BotController:
             self.streaming_uploader.complete_upload()
             self.recording_file_saved(self.streaming_uploader.key)
 
-            # Re-upload the video to S3 with the moov atom at the beginning
-            video_processor = VideoPostProcessor(os.environ.get("AWS_RECORDING_STORAGE_BUCKET_NAME"))
-            video_processor.process_video(self.streaming_uploader.key)
+            if os.environ.get("POST_PROCESS_VIDEO") == 'true':
+                # Re-upload the video to S3 with the moov atom at the beginning
+                video_processor = VideoPostProcessor(os.environ.get("AWS_RECORDING_STORAGE_BUCKET_NAME"))
+                video_processor.process_video(self.streaming_uploader.key)
 
         if self.bot_in_db.state == BotStates.POST_PROCESSING:
             BotEventManager.create_event(bot=self.bot_in_db, event_type=BotEventTypes.POST_PROCESSING_COMPLETED)
