@@ -31,11 +31,11 @@ from bots.models import (
 from .audio_output_manager import AudioOutputManager
 from .automatic_leave_configuration import AutomaticLeaveConfiguration
 from .closed_caption_manager import ClosedCaptionManager
-from .file_uploader import FileUploader
 from .gstreamer_pipeline import GstreamerPipeline
 from .individual_audio_input_manager import IndividualAudioInputManager
 from .pipeline_configuration import PipelineConfiguration
 from .rtmp_client import RTMPClient
+from .streaming_uploader import StreamingUploader
 
 gi.require_version("GLib", "2.0")
 from gi.repository import GLib
@@ -147,7 +147,7 @@ class BotController:
             if not write_succeeded:
                 GLib.idle_add(lambda: self.on_rtmp_connection_failed())
         else:
-            raise Exception("No rtmp client found")
+            self.streaming_uploader.upload_part(data)
 
     def cleanup(self):
         if self.cleanup_called:
@@ -188,14 +188,11 @@ class BotController:
         if self.main_loop and self.main_loop.is_running():
             self.main_loop.quit()
 
-        if self.file_uploader:
-            print("Telling file uploader to cleanup...")
-            self.file_uploader.upload_file(self.get_gstreamer_file_location())
-            self.file_uploader.wait_for_upload()
-            print("File uploader finished uploading file")
-            self.file_uploader.delete_file(self.get_gstreamer_file_location())
-            print("File uploader deleted file from local filesystem")
-            self.recording_file_saved(self.file_uploader.key)
+        if self.streaming_uploader:
+            print("Telling streaming uploader to cleanup...")
+            self.streaming_uploader.complete_upload()
+            self.recording_file_saved(self.streaming_uploader.key)
+            self.streaming_uploader_post_process_file()
 
         if self.bot_in_db.state == BotStates.POST_PROCESSING:
             BotEventManager.create_event(bot=self.bot_in_db, event_type=BotEventTypes.POST_PROCESSING_COMPLETED)
@@ -214,12 +211,6 @@ class BotController:
         else:
             self.pipeline_configuration = PipelineConfiguration.recorder_bot()
 
-    def get_gstreamer_sink_type(self):
-        if self.pipeline_configuration.rtmp_stream_audio or self.pipeline_configuration.rtmp_stream_video:
-            return GstreamerPipeline.SINK_TYPE_APPSINK
-        else:
-            return GstreamerPipeline.SINK_TYPE_FILE
-
     def get_gstreamer_output_format(self):
         if self.pipeline_configuration.rtmp_stream_audio or self.pipeline_configuration.rtmp_stream_video:
             return GstreamerPipeline.OUTPUT_FORMAT_FLV
@@ -229,11 +220,8 @@ class BotController:
         else:
             return GstreamerPipeline.OUTPUT_FORMAT_MP4
 
-    def get_gstreamer_file_location(self):
-        if self.pipeline_configuration.rtmp_stream_audio or self.pipeline_configuration.rtmp_stream_video:
-            return None
-        else:
-            return os.path.join("/tmp", self.get_recording_filename())
+    def get_temp_recording_file_location(self):
+        return os.path.join("/tmp", self.get_recording_filename())
 
     def run(self):
         if self.run_called:
@@ -270,15 +258,8 @@ class BotController:
             audio_format=self.get_audio_format(),
             output_format=self.get_gstreamer_output_format(),
             num_audio_sources=self.get_num_audio_sources(),
-            sink_type=self.get_gstreamer_sink_type(),
-            file_location=self.get_gstreamer_file_location(),
         )
         self.gstreamer_pipeline.setup()
-
-        self.file_uploader = FileUploader(
-            os.environ.get("AWS_RECORDING_STORAGE_BUCKET_NAME"),
-            self.get_recording_filename(),
-        )
 
         self.adapter = self.get_bot_adapter()
 
