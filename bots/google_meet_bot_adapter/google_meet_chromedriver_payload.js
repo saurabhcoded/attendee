@@ -868,8 +868,7 @@ const handleVideoTrack = async (event) => {
                         };
                         */
                         // Get current time in microseconds (multiply milliseconds by 1000)
-                        const currentTimeMicros = BigInt(Math.floor(currentTime * 1000));
-                        ws.sendVideo(currentTimeMicros, firstStreamId, frame.displayWidth, frame.displayHeight, data);
+                        ws.sendVideo(frame.timestamp + 250000, firstStreamId, frame.displayWidth, frame.displayHeight, data);
 
                         rawFrame.close();
                         lastFrameTime = currentTime;
@@ -999,8 +998,7 @@ const handleAudioTrack = async (event) => {
                 // }
 
                 // Send audio data through websocket
-                const currentTimeMicros = BigInt(Math.floor(performance.now() * 1000));
-                ws.sendAudio(currentTimeMicros, firstStreamId, audioData);
+                ws.sendAudio(frame.timestamp, firstStreamId, audioData);
 
                 // Pass through the original frame
                 controller.enqueue(frame);
