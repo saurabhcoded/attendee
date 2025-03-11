@@ -824,7 +824,7 @@ const handleVideoTrack = async (event) => {
     }
 
     // Add frame rate control variables
-    const targetFPS = isScreenShare ? 5 : 15;
+    const targetFPS = 1000;//isScreenShare ? 5 : 15;
     const frameInterval = 1000 / targetFPS; // milliseconds between frames
     let lastFrameTime = 0;
 
