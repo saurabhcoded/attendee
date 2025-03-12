@@ -1161,6 +1161,39 @@ new RTCInterceptor({
 });
 
 
+const unixToNtpEpochOffset = (new Date(0)).getTime() - (new Date("1900/01/01 00:00 GMT")).getTime();
+
+/**
+ * Validates and converts an NTP timestamp to Unix timestamp
+ * @param {Object} context - Object containing logger
+ * @param {Number} ntpTimestamp - The NTP timestamp to validate/convert
+ * @returns {Number|undefined} - The converted Unix timestamp or undefined if invalid
+ */
+const validateAndConvertNtpTimestamp = function(context, ntpTimestamp) {
+    if (ntpTimestamp !== undefined) {
+        // Calculate Unix timestamp by subtracting the epoch offset
+        const unixTimestamp = ntpTimestamp - unixToNtpEpochOffset;
+        
+        // If the result is negative, the NTP timestamp is likely incorrect
+        if (unixTimestamp < 0) {
+            // Create a date object with the potentially invalid timestamp for error reporting
+            const suggestedDate = new Date(ntpTimestamp - unixToNtpEpochOffset);
+            
+            // Log the error with a suggested correct date format
+            context.logger.log(
+                formatMessage`NTP timestamp seems wrong, suggesting ${suggestedDate.getDate()}/${suggestedDate.getMonth() + 1}/${suggestedDate.getFullYear()} ${suggestedDate.getHours()}:${suggestedDate.getMinutes()}:${suggestedDate.getSeconds()}`
+            );
+            // Return undefined for invalid timestamp
+            return undefined;
+        } else {
+            // Return the valid Unix timestamp
+            return unixTimestamp;
+        }
+    }
+    // Return undefined if no timestamp was provided
+    return undefined;
+};
+
 // Create a class to track and periodically check receivers
 class ReceiverMonitor {
     constructor(ws) {
@@ -1194,7 +1227,7 @@ class ReceiverMonitor {
         // Check sources every second
         this.checkInterval = setInterval(() => {
             this.checkAllReceivers();
-        }, 250);
+        }, 2000);
         
         console.log('Receiver monitoring started');
     }
@@ -1207,11 +1240,16 @@ class ReceiverMonitor {
         }
     }
 
+    //websockets
+
     checkAllReceivers() {
         for (const [trackId, { receiver, kind }] of this.receivers.entries()) {
             try {
                 const contributingSources = receiver.getContributingSources();
                 const syncSources = receiver.getSynchronizationSources();
+
+                // the contributing sources gives the speaker id
+                // the source corresponds to the streamid in output devices
                 
                 // Only log if there are sources to report
                 if (contributingSources.length > 0 || syncSources.length > 0) {
@@ -1248,8 +1286,18 @@ class ReceiverMonitor {
                 const captureTimestamp = info.syncSources[0]?.captureTimestamp;
                 if (captureTimestamp) {
                     if (info.kind === 'audio') {
+                        console.log('trackId', trackId, 'info', info);
                         this.audioCaptureTimestamp = captureTimestamp;
+                       // this.audioCaptureTimestamp = validateAndConvertNtpTimestamp(this, captureTimestamp);
+                       // console.log('audioCaptureTimestamp', this.audioCaptureTimestamp, "epoch time", Date.now(), "diff", Date.now() - this.audioCaptureTimestamp);
                     }
+                    /*
+                    NEW IDEA
+                    everytime we get the absolute capture timestamp, we record what the last frame timestamp was for this track
+                    then when you calculate the timestamp to pass to sendvideo or sendaudio you do
+                    finaltimestamp = capturetimestamp + (frame.timestamp - lastframetimestamp)
+                    remember the captions are on performance.now() they'll need to fixed to use epcoh
+                    */
              //       console.log(`Track ${trackId} (${info.kind}): captureTimestamp = ${captureTimestamp}`);
                 }
                 else {
