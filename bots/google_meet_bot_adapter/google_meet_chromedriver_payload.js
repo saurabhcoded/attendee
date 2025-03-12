@@ -796,8 +796,206 @@ const handleMediaDirectorEvent = (event) => {
   console.log('Decoded media director event data (base64):', base64Data);
 }
 
+const addTrackToDOM = (event) => {
+        // Create a new MediaStream with the video track and first audio track
+        const previewStream = new MediaStream();
+        previewStream.addTrack(event.track);
+        
+        // Add the first audio track if available
+        if (globalAudioTracks.length > 0) {
+          previewStream.addTrack(globalAudioTracks[0]);
+        }
+        
+        // Create a container div to hold video and controls
+        const videoContainer = document.createElement('div');
+        videoContainer.style.position = 'fixed';
+        videoContainer.style.bottom = '10px';
+        videoContainer.style.right = '10px';
+        videoContainer.style.zIndex = '9999';
+        
+        // Create a video element for preview
+        const videoElement = document.createElement('video');
+        videoElement.srcObject = previewStream;
+        videoElement.autoplay = true;
+        videoElement.muted = false; // Not muted so we can hear audio
+        videoElement.style.width = '240px';
+        videoElement.style.height = '180px';
+        videoElement.style.border = '2px solid #00a2ff';
+        videoElement.style.borderRadius = '4px';
+        
+        // Create recording controls
+        const controlsDiv = document.createElement('div');
+        controlsDiv.style.display = 'flex';
+        controlsDiv.style.justifyContent = 'space-between';
+        controlsDiv.style.marginTop = '5px';
+        
+        // Create record button
+        const recordButton = document.createElement('button');
+        recordButton.textContent = '⚫ Record';
+        recordButton.style.backgroundColor = '#00a2ff';
+        recordButton.style.color = 'white';
+        recordButton.style.border = 'none';
+        recordButton.style.borderRadius = '4px';
+        recordButton.style.padding = '5px 10px';
+        recordButton.style.cursor = 'pointer';
+        
+        // Create download link (initially hidden)
+        const downloadLink = document.createElement('a');
+        downloadLink.textContent = '💾 Download';
+        downloadLink.style.backgroundColor = '#4CAF50';
+        downloadLink.style.color = 'white';
+        downloadLink.style.textDecoration = 'none';
+        downloadLink.style.borderRadius = '4px';
+        downloadLink.style.padding = '5px 10px';
+        downloadLink.style.display = 'none';
+        
+        // Add status text
+        const statusText = document.createElement('div');
+        statusText.style.marginTop = '5px';
+        statusText.style.fontSize = '12px';
+        statusText.style.color = '#333';
+        
+        // Add elements to container
+        controlsDiv.appendChild(recordButton);
+        controlsDiv.appendChild(downloadLink);
+        videoContainer.appendChild(videoElement);
+        videoContainer.appendChild(controlsDiv);
+        videoContainer.appendChild(statusText);
+        
+        // Add the container to the document
+        document.body.appendChild(videoContainer);
+        
+        // Set up MediaRecorder and recording logic
+        let mediaRecorder;
+        let recordedChunks = [];
+        let isRecording = false;
+        let recordingStartTime;
+        let recordingTimer;
+        
+        // Find supported MIME type
+        const getMimeType = () => {
+          const types = [
+            'video/webm;codecs=vp9,opus',
+          ];
+          
+          for (const type of types) {
+            if (MediaRecorder.isTypeSupported(type)) {
+              console.log('Using MIME type:', type);
+              return type;
+            }
+          }
+          return 'video/webm'; // Fallback
+        };
+        
+        // Initialize MediaRecorder
+        try {
+          // Play the video first to ensure media is flowing
+          const playPromise = videoElement.play();
+          if (playPromise !== undefined) {
+            playPromise.then(() => {
+              console.log('Video is playing, stream should be active');
+              statusText.textContent = 'Stream ready for recording';
+            }).catch(err => {
+              console.error('Failed to play video:', err);
+              statusText.textContent = 'Error: Could not play video stream';
+            });
+          }
+          
+          mediaRecorder = new MediaRecorder(videoElement.captureStream(), { 
+            mimeType: getMimeType()          });
+          
+          console.log('MediaRecorder state:', mediaRecorder.state);
+          console.log('MediaRecorder options:', mediaRecorder.mimeType);
+          
+          mediaRecorder.ondataavailable = (e) => {
+            console.log('Data available event, size:', e.data.size);
+            if (e.data && e.data.size > 0) {
+              recordedChunks.push(e.data);
+              statusText.textContent = `Recording: ${recordedChunks.length} chunks captured (${Math.round(e.data.size / 1024)} KB)`;
+            }
+          };
+          
+          mediaRecorder.onstart = () => {
+            console.log('MediaRecorder started');
+            recordingStartTime = Date.now();
+            statusText.textContent = 'Recording started...';
+            
+            // Update recording time display
+            recordingTimer = setInterval(() => {
+              const duration = Math.floor((Date.now() - recordingStartTime) / 1000);
+              const minutes = Math.floor(duration / 60).toString().padStart(2, '0');
+              const seconds = (duration % 60).toString().padStart(2, '0');
+              statusText.textContent = `Recording: ${minutes}:${seconds}`;
+            }, 1000);
+          };
+          
+          mediaRecorder.onstop = () => {
+            console.log('MediaRecorder stopped, chunks:', recordedChunks.length);
+            clearInterval(recordingTimer);
+            
+            if (recordedChunks.length === 0) {
+              statusText.textContent = 'Error: No data was recorded';
+              return;
+            }
+            
+            // Create blob from recorded chunks
+            const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType });
+            console.log('Created blob, size:', blob.size);
+            statusText.textContent = `Recording complete: ${Math.round(blob.size / 1024 / 1024 * 100) / 100} MB`;
+            
+            const url = URL.createObjectURL(blob);
+            
+            // Update download link
+            downloadLink.href = url;
+            downloadLink.download = `google-meet-recording-${new Date().toISOString().replace(/:/g, '-')}.webm`;
+            downloadLink.style.display = 'block';
+            
+            // Reset recording state
+            isRecording = false;
+            recordButton.textContent = '⚫ Record';
+            recordButton.style.backgroundColor = '#00a2ff';
+          };
+          
+          mediaRecorder.onerror = (event) => {
+            console.error('MediaRecorder error:', event);
+            statusText.textContent = 'Error during recording';
+          };
+          
+          // Add click event to record button
+          recordButton.addEventListener('click', () => {
+            if (isRecording) {
+              // Stop recording
+              mediaRecorder.stop();
+              recordButton.textContent = '⚫ Record';
+              recordButton.style.backgroundColor = '#00a2ff';
+            } else {
+              // Start recording
+              recordedChunks = [];
+              try {
+                mediaRecorder.start(1000); // Request data every second
+                isRecording = true;
+                recordButton.textContent = '⏹️ Stop';
+                recordButton.style.backgroundColor = '#ff4d4d';
+                downloadLink.style.display = 'none';
+              } catch (err) {
+                console.error('Failed to start recording:', err);
+                statusText.textContent = `Error starting recording: ${err.message}`;
+              }
+            }
+          });
+          
+        } catch (error) {
+          console.error('MediaRecorder initialization error:', error);
+          statusText.textContent = `Recording not supported: ${error.message}`;
+          recordButton.textContent = 'Recording not supported';
+          recordButton.disabled = true;
+          recordButton.style.backgroundColor = '#cccccc';
+        }
+}
+
 const handleVideoTrack = async (event) => {  
   try {
+
     // Create processor to get raw frames
     const processor = new MediaStreamTrackProcessor({ track: event.track });
     const generator = new MediaStreamTrackGenerator({ kind: 'video' });
@@ -827,6 +1025,7 @@ const handleVideoTrack = async (event) => {
     const targetFPS = 1000;//isScreenShare ? 5 : 15;
     const frameInterval = 1000 / targetFPS; // milliseconds between frames
     let lastFrameTime = 0;
+    let firstFrame = null;
 
     const transformStream = new TransformStream({
         async transform(frame, controller) {
@@ -873,6 +1072,11 @@ const handleVideoTrack = async (event) => {
 
                         rawFrame.close();
                         lastFrameTime = currentTime;
+                        if (firstFrame === null) {
+                            firstFrame = "Dfdf";
+
+                            addTrackToDOM(event);
+                        }
                     }
                 }
                 
@@ -912,7 +1116,7 @@ const handleVideoTrack = async (event) => {
       console.error('Error setting up video interceptor:', error);
   }
 };
-
+const globalAudioTracks = [];
 const handleAudioTrack = async (event) => {
   let lastAudioFormat = null;  // Track last seen format
   
@@ -921,6 +1125,8 @@ const handleAudioTrack = async (event) => {
     const processor = new MediaStreamTrackProcessor({ track: event.track });
     const generator = new MediaStreamTrackGenerator({ kind: 'audio' });
     
+    globalAudioTracks.push(event.track);
+
     // Get readable stream of audio frames
     const readable = processor.readable;
     const writable = generator.writable;
@@ -1054,6 +1260,7 @@ new RTCInterceptor({
 
         peerConnection.addEventListener('track', (event) => {
             // Log the track and its associated streams
+            if (event.track.kind === 'audio' || event.track.kind === 'video') {
             console.log('New track:', {
                 trackId: event.track.id,
                 streams: event.streams,
@@ -1063,6 +1270,7 @@ new RTCInterceptor({
                 // Get the RTP parameters which might contain stream IDs
                 rtpParameters: event.transceiver?.sender.getParameters()
             });
+        }
             if (event.track.kind === 'audio') {
                 handleAudioTrack(event);
             }
@@ -1123,3 +1331,325 @@ new RTCInterceptor({
 });
 
 
+
+// MediaStream interceptor
+const globalMediaStreams = [];
+class MediaStreamInterceptor {
+    constructor() {
+        // Store the original MediaStream constructor
+        const originalMediaStream = window.MediaStream;
+        
+        // Override the MediaStream constructor
+        window.MediaStream = function(...args) {
+            // Create instance using the original constructor
+            const mediaStream = Reflect.construct(originalMediaStream, args);
+            
+            // Add to global array
+            globalMediaStreams.push(mediaStream);
+            
+            console.log(`MediaStream created: ${mediaStream.id}, total streams: ${globalMediaStreams.length}`);
+            
+            return mediaStream;
+        };
+        
+        // Ensure prototype chain is maintained
+        window.MediaStream.prototype = originalMediaStream.prototype;
+    }
+}
+
+// Initialize the MediaStream interceptor
+new MediaStreamInterceptor();
+
+// Helper function to get stream info
+window.getMediaStreamInfo = () => {
+    return {
+        count: globalMediaStreams.length,
+        streams: globalMediaStreams,
+        tracks: globalMediaStreams.map(s => s.getTracks()),
+    };
+};
+
+// Add this function for screen recording with audio
+async function createScreenRecorder() {
+  // Create UI elements
+  const recorderContainer = document.createElement('div');
+  recorderContainer.style.position = 'fixed';
+  recorderContainer.style.top = '10px';
+  recorderContainer.style.right = '10px';
+  recorderContainer.style.zIndex = '9999';
+  recorderContainer.style.background = '#ffffff';
+  recorderContainer.style.borderRadius = '8px';
+  recorderContainer.style.padding = '10px';
+  recorderContainer.style.boxShadow = '0 2px 10px rgba(0,0,0,0.2)';
+  
+  const buttonBar = document.createElement('div');
+  buttonBar.style.display = 'flex';
+  buttonBar.style.gap = '10px';
+  buttonBar.style.marginBottom = '10px';
+  
+  const startButton = document.createElement('button');
+  startButton.textContent = '⚫ Record Screen';
+  startButton.style.padding = '8px 12px';
+  startButton.style.background = '#00a2ff';
+  startButton.style.color = 'white';
+  startButton.style.border = 'none';
+  startButton.style.borderRadius = '4px';
+  startButton.style.cursor = 'pointer';
+  
+  const stopButton = document.createElement('button');
+  stopButton.textContent = '⏹️ Stop';
+  stopButton.style.padding = '8px 12px';
+  stopButton.style.background = '#ff4d4d';
+  stopButton.style.color = 'white';
+  stopButton.style.border = 'none';
+  stopButton.style.borderRadius = '4px';
+  stopButton.style.cursor = 'pointer';
+  stopButton.style.display = 'none';
+  
+  // Audio options section
+  const audioOptionsDiv = document.createElement('div');
+  audioOptionsDiv.style.marginBottom = '10px';
+  
+  const audioOptionsLabel = document.createElement('div');
+  audioOptionsLabel.textContent = 'Audio Sources:';
+  audioOptionsLabel.style.fontWeight = 'bold';
+  audioOptionsLabel.style.marginBottom = '5px';
+  
+  const systemAudioLabel = document.createElement('label');
+  systemAudioLabel.style.display = 'block';
+  systemAudioLabel.style.marginBottom = '5px';
+  
+  const systemAudioCheckbox = document.createElement('input');
+  systemAudioCheckbox.type = 'checkbox';
+  systemAudioCheckbox.checked = true;
+  systemAudioCheckbox.id = 'system-audio';
+  
+  systemAudioLabel.appendChild(systemAudioCheckbox);
+  systemAudioLabel.appendChild(document.createTextNode(' System Audio (Chrome)'));
+  
+  const micAudioLabel = document.createElement('label');
+  micAudioLabel.style.display = 'block';
+  
+  const micAudioCheckbox = document.createElement('input');
+  micAudioCheckbox.type = 'checkbox';
+  micAudioCheckbox.id = 'mic-audio';
+  
+  micAudioLabel.appendChild(micAudioCheckbox);
+  micAudioLabel.appendChild(document.createTextNode(' Microphone'));
+  
+  audioOptionsDiv.appendChild(audioOptionsLabel);
+  audioOptionsDiv.appendChild(systemAudioLabel);
+  audioOptionsDiv.appendChild(micAudioLabel);
+  
+  const statusText = document.createElement('div');
+  statusText.textContent = 'Ready to record';
+  statusText.style.margin = '5px 0';
+  
+  const previewVideo = document.createElement('video');
+  previewVideo.style.width = '240px';
+  previewVideo.style.height = '180px';
+  previewVideo.style.borderRadius = '4px';
+  previewVideo.style.backgroundColor = '#000';
+  previewVideo.style.display = 'none';
+  previewVideo.controls = true;
+  
+  const downloadLink = document.createElement('a');
+  downloadLink.textContent = '💾 Download Recording';
+  downloadLink.style.display = 'none';
+  downloadLink.style.textAlign = 'center';
+  downloadLink.style.padding = '8px 12px';
+  downloadLink.style.background = '#4CAF50';
+  downloadLink.style.color = 'white';
+  downloadLink.style.borderRadius = '4px';
+  downloadLink.style.textDecoration = 'none';
+  downloadLink.style.marginTop = '10px';
+  
+  buttonBar.appendChild(startButton);
+  buttonBar.appendChild(stopButton);
+  recorderContainer.appendChild(buttonBar);
+  recorderContainer.appendChild(audioOptionsDiv);
+  recorderContainer.appendChild(statusText);
+  recorderContainer.appendChild(previewVideo);
+  recorderContainer.appendChild(downloadLink);
+  document.body.appendChild(recorderContainer);
+  
+  // Screen recording functionality
+  let mediaRecorder;
+  let recordedChunks = [];
+  let screenStream;
+  let micStream;
+  let combinedStream;
+  let recordingInterval;
+  let startTime;
+  
+  startButton.addEventListener('click', async () => {
+    try {
+      const wantSystemAudio = systemAudioCheckbox.checked;
+      const wantMicAudio = micAudioCheckbox.checked;
+      
+      // Get screen capture stream with audio options specific to Chrome
+      screenStream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          cursor: "always",
+          displaySurface: "browser" // You can also use "window" or "monitor"
+        },
+        audio: wantSystemAudio ? {
+          // Chrome-specific constraints for system audio
+          suppressLocalAudioPlayback: false,
+          // Ensure we get system audio when available
+          audioGainControl: false,
+          echoCancellation: false,
+          noiseSuppression: false
+        } : false
+      });
+      
+      // Check if we got system audio
+      const hasSystemAudio = screenStream.getAudioTracks().length > 0;
+      if (wantSystemAudio && !hasSystemAudio) {
+        statusText.textContent = "Note: System audio not available. Try 'Share tab audio' in Chrome's share dialog.";
+      }
+      
+      // Create the combined stream for recording
+      const tracks = [...screenStream.getTracks()];
+      
+      // Add microphone audio if requested
+      if (wantMicAudio) {
+        try {
+          micStream = await navigator.mediaDevices.getUserMedia({ 
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true
+            }
+          });
+          tracks.push(...micStream.getAudioTracks());
+          statusText.textContent = "Recording with microphone audio";
+        } catch (micError) {
+          console.error("Could not get microphone:", micError);
+          statusText.textContent = "Could not access microphone. Recording without mic.";
+        }
+      }
+      
+      // Create a combined stream with all tracks
+      combinedStream = new MediaStream(tracks);
+      
+      // Determine best MIME type for audio+video recording
+      const mimeTypes = [
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
+        'video/webm'
+      ];
+      
+      let mimeType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type)) || 'video/webm';
+      console.log('Using MIME type:', mimeType);
+      
+      // Create the recorder with optimal settings for Chrome
+      mediaRecorder = new MediaRecorder(combinedStream, {
+        mimeType: mimeType,
+        videoBitsPerSecond: 2500000, // 2.5 Mbps
+        audioBitsPerSecond: 128000   // 128 kbps
+      });
+      
+      // Setup preview
+      previewVideo.srcObject = combinedStream;
+      previewVideo.style.display = 'block';
+      previewVideo.muted = true; // Avoid echo when recording
+      previewVideo.play().catch(e => console.log('Preview play prevented:', e));
+      
+      // Record data
+      recordedChunks = [];
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          recordedChunks.push(event.data);
+          const totalMB = recordedChunks.reduce((size, chunk) => size + chunk.size, 0) / (1024 * 1024);
+          statusText.textContent = `Recording: ${Math.floor(totalMB * 100) / 100} MB captured`;
+        }
+      };
+      
+      // Start recording
+      mediaRecorder.start(1000); // Collect data every second
+      startTime = Date.now();
+      
+      // Update recording time
+      recordingInterval = setInterval(() => {
+        const duration = Math.floor((Date.now() - startTime) / 1000);
+        const minutes = Math.floor(duration / 60).toString().padStart(2, '0');
+        const seconds = (duration % 60).toString().padStart(2, '0');
+        statusText.textContent = `Recording: ${minutes}:${seconds}`;
+      }, 1000);
+      
+      // Update UI
+      startButton.style.display = 'none';
+      stopButton.style.display = 'block';
+      downloadLink.style.display = 'none';
+      audioOptionsDiv.style.display = 'none';
+      
+      // Handle stream end (when user clicks "Stop sharing")
+      screenStream.getVideoTracks()[0].onended = () => {
+        stopRecording();
+      };
+      
+    } catch (error) {
+      console.error('Error starting screen recording:', error);
+      statusText.textContent = `Error: ${error.message}`;
+    }
+  });
+  
+  stopButton.addEventListener('click', stopRecording);
+  
+  function stopRecording() {
+    if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+    
+    // Stop the recording
+    mediaRecorder.stop();
+    clearInterval(recordingInterval);
+    
+    // Stop all tracks
+    if (screenStream) {
+      screenStream.getTracks().forEach(track => track.stop());
+    }
+    if (micStream) {
+      micStream.getTracks().forEach(track => track.stop());
+    }
+    
+    // Update UI
+    startButton.style.display = 'block';
+    stopButton.style.display = 'none';
+    audioOptionsDiv.style.display = 'block';
+    statusText.textContent = 'Processing recording...';
+    
+    // Handle recording completion
+    mediaRecorder.onstop = () => {
+      // Create recording blob
+      const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType });
+      const url = URL.createObjectURL(blob);
+      
+      // Update preview video
+      previewVideo.srcObject = null;
+      previewVideo.src = url;
+      previewVideo.muted = false; // Allow audio playback in preview
+      
+      // Update download link
+      downloadLink.href = url;
+      downloadLink.download = `screen-recording-${new Date().toISOString().replace(/:/g, '-')}.webm`;
+      downloadLink.style.display = 'block';
+      
+      // Update status
+      const sizeMB = (blob.size / (1024 * 1024)).toFixed(2);
+      statusText.textContent = `Recording complete: ${sizeMB} MB`;
+    };
+  }
+  
+  return {
+    startRecording: () => startButton.click(),
+    stopRecording: () => stopButton.click()
+  };
+}
+
+// Add this to initialize the screen recorder
+window.addEventListener('load', () => {
+  // Create the screen recorder when the page is fully loaded
+  window.screenRecorder = createScreenRecorder();
+  
+  // You can access it from the console via window.screenRecorder.startRecording() or stopRecording()
+});
