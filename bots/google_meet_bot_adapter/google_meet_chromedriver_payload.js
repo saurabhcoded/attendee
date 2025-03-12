@@ -827,6 +827,7 @@ const handleVideoTrack = async (event) => {
     const targetFPS = 1000;//isScreenShare ? 5 : 15;
     const frameInterval = 1000 / targetFPS; // milliseconds between frames
     let lastFrameTime = 0;
+    let videoOffset = 0;
 
     const transformStream = new TransformStream({
         async transform(frame, controller) {
@@ -869,7 +870,22 @@ const handleVideoTrack = async (event) => {
                         */
                         // Get current time in microseconds (multiply milliseconds by 1000)
                         const currentTimeMicros = BigInt(Math.floor(currentTime * 1000));
-                        ws.sendVideo(currentTimeMicros, firstStreamId, frame.displayWidth, frame.displayHeight, data);
+                        const associatedReceiverInfo = window.receiverMonitor.receivers.get(event.track.id);
+                        //console.log('associatedReceiverInfo', associatedReceiverInfo?.syncSources[0].captureTimestamp, 'vs', frame.timestamp, 'diff', (associatedReceiverInfo?.syncSources[0].captureTimestamp - frame.timestamp));
+                        const captureTimestamp = receiverMonitor.receivers.get(event.track.id)?.syncSources?.[0]?.captureTimestamp;
+                        const audioCaptureTimestamp = receiverMonitor.audioCaptureTimestamp;
+                        if (captureTimestamp && audioCaptureTimestamp) {
+                            desiredVideoOffset = 1000*(audioCaptureTimestamp - captureTimestamp);
+                           if (desiredVideoOffset > videoOffset) {
+                            videoOffset += 100;
+                           }
+                           else {
+                            videoOffset -= 100;
+                           }
+                           videoOffset = desiredVideoOffset;
+                           console.log('desiredVideoOffset', desiredVideoOffset, 'videoOffset', videoOffset);
+                        }
+                        ws.sendVideo(frame.timestamp + videoOffset, firstStreamId, frame.displayWidth, frame.displayHeight, data);
 
                         rawFrame.close();
                         lastFrameTime = currentTime;
@@ -926,7 +942,7 @@ const handleAudioTrack = async (event) => {
     const writable = generator.writable;
 
     const firstStreamId = event.streams[0]?.id;
-
+    let diffBetweenCaptureTimeAndTimestamp = null;
     // Transform stream to intercept frames
     const transformStream = new TransformStream({
         async transform(frame, controller) {
@@ -998,9 +1014,8 @@ const handleAudioTrack = async (event) => {
                 //    return;
                 // }
 
-                // Send audio data through websocket
-                const currentTimeMicros = BigInt(Math.floor(performance.now() * 1000));
-                ws.sendAudio(currentTimeMicros, firstStreamId, audioData);
+             
+                ws.sendAudio(frame.timestamp, firstStreamId, audioData);
 
                 // Pass through the original frame
                 controller.enqueue(frame);
@@ -1054,15 +1069,28 @@ new RTCInterceptor({
 
         peerConnection.addEventListener('track', (event) => {
             // Log the track and its associated streams
-            console.log('New track:', {
-                trackId: event.track.id,
-                streams: event.streams,
-                streamIds: event.streams.map(stream => stream.id),
-                // Get any msid information
-                transceiver: event.transceiver,
-                // Get the RTP parameters which might contain stream IDs
-                rtpParameters: event.transceiver?.sender.getParameters()
-            });
+
+
+            if (event.track.kind == 'audio' || event.track.kind == 'video') {
+                console.log('New track:', {
+                    trackId: event.track.id,
+                    streams: event.streams,
+                    streamIds: event.streams.map(stream => stream.id),
+                    // Get any msid information
+                    transceiver: event.transceiver,
+                    // Get the RTP parameters which might contain stream IDs
+                    rtpParameters: event.transceiver?.sender.getParameters(),
+                    receivers: peerConnection.getReceivers()
+                });
+
+                window.receiverMonitor.addReceiver(event.track.id, event.receiver, event.track.kind);
+            
+                // Track ended listener to clean up
+                event.track.addEventListener('ended', () => {
+                    receiverMonitor.removeReceiver(event.track.id);
+                });
+            }
+
             if (event.track.kind === 'audio') {
                 handleAudioTrack(event);
             }
@@ -1123,3 +1151,108 @@ new RTCInterceptor({
 });
 
 
+// Create a class to track and periodically check receivers
+class ReceiverMonitor {
+    constructor(ws) {
+        this.receivers = new Map(); // trackId -> receiver
+        this.checkInterval = null;
+        this.ws = ws;
+        this.audioCaptureTimestamp = null;
+    }
+
+    addReceiver(trackId, receiver, trackKind) {
+        this.receivers.set(trackId, { receiver, kind: trackKind, lastUpdate: Date.now() });
+        
+        // Start monitoring if not already started
+        if (!this.checkInterval) {
+            this.startMonitoring();
+        }
+    }
+
+    removeReceiver(trackId) {
+        this.receivers.delete(trackId);
+        
+        // Stop monitoring if no receivers left
+        if (this.receivers.size === 0 && this.checkInterval) {
+            this.stopMonitoring();
+        }
+    }
+
+    startMonitoring() {
+        if (this.checkInterval) return;
+        
+        // Check sources every second
+        this.checkInterval = setInterval(() => {
+            this.checkAllReceivers();
+        }, 1000);
+        
+        console.log('Receiver monitoring started');
+    }
+
+    stopMonitoring() {
+        if (this.checkInterval) {
+            clearInterval(this.checkInterval);
+            this.checkInterval = null;
+            console.log('Receiver monitoring stopped');
+        }
+    }
+
+    checkAllReceivers() {
+        for (const [trackId, { receiver, kind }] of this.receivers.entries()) {
+            try {
+                const contributingSources = receiver.getContributingSources();
+                const syncSources = receiver.getSynchronizationSources();
+                
+                // Only log if there are sources to report
+                if (contributingSources.length > 0 || syncSources.length > 0) {
+                    //console.log(`Track ${trackId} (${kind}) sources:`, {
+                    //    contributingSources,
+                    //    syncSources
+                    //}); 
+                    
+                    const trackInfo = this.receivers.get(trackId);
+                    if (trackInfo) {
+                        if (syncSources && trackInfo.syncSources){
+                        const newTimestamp = syncSources[0]?.captureTimestamp;
+                        const currentTimestamp = trackInfo.syncSources[0]?.captureTimestamp;
+                        if (newTimestamp && currentTimestamp) {
+                         //   console.log('newTimestamp', newTimestamp, 'currentTimestamp', currentTimestamp, 'diff', (newTimestamp - currentTimestamp));
+                        }
+                    }
+                        trackInfo.contributingSources = contributingSources;
+                        trackInfo.syncSources = syncSources;
+                        //trackInfo.lastSetAt = performance.now();
+                    }
+                    //console.log('this.receivers', this.receivers);
+                }
+                
+            } catch (error) {
+                console.error(`Error checking sources for track ${trackId}:`, error);
+            }
+        }
+        
+        // Log capture timestamps for all receivers
+        //console.log('===== Capture Timestamps for All Receivers =====');
+        for (const [trackId, info] of this.receivers.entries()) {
+            if (info.syncSources && info.syncSources.length > 0) {
+                const captureTimestamp = info.syncSources[0]?.captureTimestamp;
+                if (captureTimestamp) {
+                    if (info.kind === 'audio') {
+                        this.audioCaptureTimestamp = captureTimestamp;
+                    }
+             //       console.log(`Track ${trackId} (${info.kind}): captureTimestamp = ${captureTimestamp}`);
+                }
+                else {
+           //         console.log(`Track ${trackId} (${info.kind}): no capture timestamp`);
+                }
+            }
+            else {
+         //       console.log(`Track ${trackId} (${info.kind}): no sync sources`);
+            }
+        }
+    }
+}
+
+// Create the receiver monitor instance
+const receiverMonitor = new ReceiverMonitor(ws);
+window.receiverMonitor = receiverMonitor;
