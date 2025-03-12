@@ -824,8 +824,11 @@ const handleVideoTrack = async (event) => {
         videoTrackManager.upsertVideoTrack(event.track, firstStreamId, isScreenShare);
     }
 
-    const associatedUser = userManager.getCurrentUsersInMeeting().find(user => user.deviceId && userManager.getDeviceOutput(user.deviceId, DEVICE_OUTPUT_TYPE.VIDEO)?.streamId === firstStreamId);
-
+    let associatedUser = userManager.getCurrentUsersInMeeting().find(user => user.deviceId && userManager.getDeviceOutput(user.deviceId, DEVICE_OUTPUT_TYPE.VIDEO)?.streamId === firstStreamId);
+    if (associatedUser.parentDeviceId) {
+        associatedUser = userManager.getCurrentUsersInMeeting().find(user => user.deviceId === associatedUser.parentDeviceId);
+    }
+    console.log('associatedUser before', associatedUser);
     const associatedAudioStreamId = associatedUser && userManager.getDeviceOutput(associatedUser.deviceId, DEVICE_OUTPUT_TYPE.AUDIO)?.streamId;
 
 
@@ -875,29 +878,30 @@ const handleVideoTrack = async (event) => {
                             codedHeight: frame.codedHeight
                         };
                         */
-                        
-                        const audioTrackInfo = window.receiverMonitor.getTrackInfoForSourceStreamId(associatedAudioStreamId);
-                        if (audioTrackInfo) {
-                            const audioCaptureTimestamp = audioTrackInfo?.syncSources?.[0]?.captureTimestamp;
-                            const videoCaptureTimestamp = window.receiverMonitor.receivers.get(event.track.id)?.syncSources?.[0]?.captureTimestamp;
-                            if (audioCaptureTimestamp && videoCaptureTimestamp) {
-                                const desiredVideoOffset = 1000*(audioCaptureTimestamp - videoCaptureTimestamp);
-                                const offsetDiff = desiredVideoOffset - videoOffset;
-                                const adjustmentStep = Math.min(Math.max(Math.abs(offsetDiff) * 0.3, 5), 4000) * Math.sign(offsetDiff);
-                                videoOffset += Math.round(adjustmentStep);
+                        if (associatedAudioStreamId) {
+                            const audioTrackInfo = window.receiverMonitor.getTrackInfoForSourceStreamId(associatedAudioStreamId);
+                            if (audioTrackInfo) {
+                                const audioCaptureTimestamp = audioTrackInfo?.syncSources?.[0]?.captureTimestamp;
+                                const videoCaptureTimestamp = window.receiverMonitor.receivers.get(event.track.id)?.syncSources?.[0]?.captureTimestamp;
+                                if (audioCaptureTimestamp && videoCaptureTimestamp) {
+                                    const desiredVideoOffset = 1000*(audioCaptureTimestamp - videoCaptureTimestamp);
+                                    const offsetDiff = desiredVideoOffset - videoOffset;
+                                    const adjustmentStep = Math.min(Math.max(Math.abs(offsetDiff) * 0.3, 5), 4000) * Math.sign(offsetDiff);
+                                    videoOffset += Math.round(adjustmentStep);
+                                    console.log('videoOffset diff ms', Math.floor(offsetDiff / 1000))
+                                }
                             }
                         }
                         const adjustedTime = frame.timestamp + videoOffset;
-                        console.log('videoOffset', videoOffset);
                         ws.sendVideo(adjustedTime, firstStreamId, frame.displayWidth, frame.displayHeight, data);
 
-                        if (!firstFrameTimestamp) {
+                        if (!firstFrameTimestamp && associatedAudioStreamId) {
                             firstFrameTimestamp = frame.timestamp;
                             window.receiverMonitor.checkAllReceivers();
                             const trackInfo = window.receiverMonitor.getTrackInfoForSourceStreamId(associatedAudioStreamId);
                             
                             //console.log('firstFrameTimestamp', firstFrameTimestamp, 'streamId', firstStreamId);
-                            console.log('associatedUser', associatedUser, 'firstStreamId', firstStreamId, 'associatedAudioStreamId', associatedAudioStreamId, 'trackInfo', trackInfo);
+                            console.log('associatedUser', associatedUser, 'firstFrameTimestamp', firstFrameTimestamp, 'firstStreamId', firstStreamId, 'associatedAudioStreamId', associatedAudioStreamId, 'trackInfo', trackInfo);
                         }
 
                         rawFrame.close();
