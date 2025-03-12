@@ -796,6 +796,7 @@ const handleMediaDirectorEvent = (event) => {
   console.log('Decoded media director event data (base64):', base64Data);
 }
 
+let globalTimeOffset = null;
 const handleVideoTrack = async (event) => {  
   try {
     // Create processor to get raw frames
@@ -875,17 +876,22 @@ const handleVideoTrack = async (event) => {
                         const captureTimestamp = receiverMonitor.receivers.get(event.track.id)?.syncSources?.[0]?.captureTimestamp;
                         const audioCaptureTimestamp = receiverMonitor.audioCaptureTimestamp;
                         if (captureTimestamp && audioCaptureTimestamp) {
-                            desiredVideoOffset = 1000*(audioCaptureTimestamp - captureTimestamp);
-                           if (desiredVideoOffset > videoOffset) {
-                            videoOffset += 100;
-                           }
-                           else {
-                            videoOffset -= 100;
-                           }
-                           videoOffset = desiredVideoOffset;
-                           console.log('desiredVideoOffset', desiredVideoOffset, 'videoOffset', videoOffset);
+                           const desiredVideoOffset = 1000*(audioCaptureTimestamp - captureTimestamp);
+                           // Calculate the difference between current and desired offset
+                           const offsetDiff = desiredVideoOffset - videoOffset;
+                           
+                           // Use proportional adjustment: move faster for larger differences
+                           // with a minimum step of 5ms and maximum of 300ms per adjustment
+                           const adjustmentStep = Math.min(Math.max(Math.abs(offsetDiff) * 0.3, 5), 4000) * Math.sign(offsetDiff);
+                           videoOffset += Math.round(adjustmentStep);
+                           
+                           //console.log('desiredVideoOffset', desiredVideoOffset, 'videoOffset', videoOffset, 'adjustment', adjustmentStep);
                         }
-                        ws.sendVideo(frame.timestamp + videoOffset, firstStreamId, frame.displayWidth, frame.displayHeight, data);
+                        let localTime = BigInt(frame.timestamp) + BigInt(videoOffset);
+                        if (!globalTimeOffset) {
+                            globalTimeOffset = currentTimeMicros - localTime;
+                        }
+                        ws.sendVideo(localTime + globalTimeOffset, firstStreamId, frame.displayWidth, frame.displayHeight, data);
 
                         rawFrame.close();
                         lastFrameTime = currentTime;
@@ -1014,8 +1020,12 @@ const handleAudioTrack = async (event) => {
                 //    return;
                 // }
 
-             
-                ws.sendAudio(frame.timestamp, firstStreamId, audioData);
+                const currentTimeMicros = BigInt(Math.floor(performance.now() * 1000));
+                const localTime = BigInt(frame.timestamp);
+                if (!globalTimeOffset) {
+                    globalTimeOffset = currentTimeMicros - localTime;
+                }
+                ws.sendAudio(localTime + globalTimeOffset, firstStreamId, audioData);
 
                 // Pass through the original frame
                 controller.enqueue(frame);
@@ -1184,7 +1194,7 @@ class ReceiverMonitor {
         // Check sources every second
         this.checkInterval = setInterval(() => {
             this.checkAllReceivers();
-        }, 1000);
+        }, 250);
         
         console.log('Receiver monitoring started');
     }
