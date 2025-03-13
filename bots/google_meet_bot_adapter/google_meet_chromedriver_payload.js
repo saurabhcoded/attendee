@@ -944,24 +944,24 @@ const handleAudioTrack = async (event) => {
                 // Copy the audio data
                 const numChannels = frame.numberOfChannels;
                 const numSamples = frame.numberOfFrames;
-                const audioData = new Float32Array(numSamples);
+                const audioData = new Float32Array(numSamples/2);
                 
                 // Copy data from each channel
                 // If multi-channel, average all channels together
-                if (numChannels > 1) {
+                if (numChannels > 1 || true) {
                     // Temporary buffer to hold each channel's data
                     const channelData = new Float32Array(numSamples);
                     
                     // Sum all channels
                     for (let channel = 0; channel < numChannels; channel++) {
                         frame.copyTo(channelData, { planeIndex: channel });
-                        for (let i = 0; i < numSamples; i++) {
-                            audioData[i] += channelData[i];
+                        for (let i = 0; i < numSamples; i+=2) {
+                            audioData[i/2] += channelData[i];
                         }
                     }
                     
                     // Average by dividing by number of channels
-                    for (let i = 0; i < numSamples; i++) {
+                    for (let i = 0; i < numSamples / 2; i++) {
                         audioData[i] /= numChannels;
                     }
                 } else {
