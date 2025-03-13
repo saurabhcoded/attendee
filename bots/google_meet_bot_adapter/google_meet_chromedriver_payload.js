@@ -800,7 +800,6 @@ const handleVideoTrack = async (event) => {
   try {
     // Create processor to get raw frames
     const processor = new MediaStreamTrackProcessor({ track: event.track });
-    const generator = new MediaStreamTrackGenerator({ kind: 'video' });
     
     // Add track ended listener
     event.track.addEventListener('ended', () => {
@@ -810,7 +809,6 @@ const handleVideoTrack = async (event) => {
     
     // Get readable stream of video frames
     const readable = processor.readable;
-    const writable = generator.writable;
 
     const firstStreamId = event.streams[0]?.id;
 
@@ -876,8 +874,8 @@ const handleVideoTrack = async (event) => {
                     }
                 }
                 
-                // Always enqueue the frame for the video element
-                controller.enqueue(frame);
+                // Always close the frame since we're not using a generator
+                frame.close();
             } catch (error) {
                 console.error('Error processing frame:', error);
                 frame.close();
@@ -888,25 +886,29 @@ const handleVideoTrack = async (event) => {
         }
     });
 
-    // Create an abort controller for cleanup
-    const abortController = new AbortController();
+    // Create a reader to consume frames from the transform stream
+    const reader = readable
+        .pipeThrough(transformStream)
+        .getReader();
 
-    try {
-        // Connect the streams
-        await readable
-            .pipeThrough(transformStream)
-            .pipeTo(writable, {
-                signal: abortController.signal
-            })
-            .catch(error => {
-                if (error.name !== 'AbortError') {
-                    console.error('Pipeline error:', error);
+    // Read frames until done
+    const readFrames = async () => {
+        try {
+            while (true) {
+                const { done } = await reader.read();
+                if (done) {
+                    console.log('Video stream ended');
+                    break;
                 }
-            });
-    } catch (error) {
-        console.error('Stream pipeline error:', error);
-        abortController.abort();
-    }
+            }
+        } catch (error) {
+            console.error('Error reading video frames:', error);
+        } finally {
+            reader.releaseLock();
+        }
+    };
+
+    readFrames();
 
   } catch (error) {
       console.error('Error setting up video interceptor:', error);
@@ -919,11 +921,9 @@ const handleAudioTrack = async (event) => {
   try {
     // Create processor to get raw frames
     const processor = new MediaStreamTrackProcessor({ track: event.track });
-    const generator = new MediaStreamTrackGenerator({ kind: 'audio' });
     
     // Get readable stream of audio frames
     const readable = processor.readable;
-    const writable = generator.writable;
 
     const firstStreamId = event.streams[0]?.id;
 
@@ -1002,8 +1002,8 @@ const handleAudioTrack = async (event) => {
                 const currentTimeMicros = BigInt(Math.floor(performance.now() * 1000));
                 ws.sendAudio(currentTimeMicros, firstStreamId, audioData);
 
-                // Pass through the original frame
-                controller.enqueue(frame);
+                // Close the frame since we're not using a generator
+                frame.close();
             } catch (error) {
                 console.error('Error processing frame:', error);
                 frame.close();
@@ -1014,25 +1014,29 @@ const handleAudioTrack = async (event) => {
         }
     });
 
-    // Create an abort controller for cleanup
-    const abortController = new AbortController();
+    // Create a reader to consume frames from the transform stream
+    const reader = readable
+        .pipeThrough(transformStream)
+        .getReader();
 
-    try {
-        // Connect the streams
-        await readable
-            .pipeThrough(transformStream)
-            .pipeTo(writable, {
-                signal: abortController.signal
-            })
-            .catch(error => {
-                if (error.name !== 'AbortError') {
-                    console.error('Pipeline error:', error);
+    // Read frames until done
+    const readFrames = async () => {
+        try {
+            while (true) {
+                const { done } = await reader.read();
+                if (done) {
+                    console.log('Audio stream ended');
+                    break;
                 }
-            });
-    } catch (error) {
-        console.error('Stream pipeline error:', error);
-        abortController.abort();
-    }
+            }
+        } catch (error) {
+            console.error('Error reading audio frames:', error);
+        } finally {
+            reader.releaseLock();
+        }
+    };
+
+    readFrames();
 
   } catch (error) {
       console.error('Error setting up audio interceptor:', error);
