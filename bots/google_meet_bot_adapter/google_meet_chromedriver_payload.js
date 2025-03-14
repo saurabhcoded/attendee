@@ -813,7 +813,9 @@ const addTrackToCanvas = (event) => {
     canvasContainer.style.zIndex = '9999';
     canvasContainer.style.background = '#000';
     canvasContainer.style.padding = '5px';
-    canvasContainer.style.borderRadius = '4px';
+    canvasContainer.style.borderRadius = '0px';
+    canvasContainer.style.display = 'none';
+
 
     // Create canvas element
     canvas.width = 1920;  // Set initial size
@@ -1255,38 +1257,9 @@ const handleVideoTrack = async (event) => {
                 if (firstStreamId && firstStreamId === videoTrackManager.getStreamIdToSendCached()) {
                     // Check if enough time has passed since the last frame
                     if (currentTime - lastFrameTime >= frameInterval) {
-                        // Copy the frame to get access to raw data
-                        const rawFrame = new VideoFrame(frame, {
-                            format: 'I420'
-                        });
-
-                        // Get the raw data from the frame
-                        const data = new Uint8Array(rawFrame.allocationSize());
-                        rawFrame.copyTo(data);
-
-                        /*
-                        const currentFormat = {
-                            width: frame.displayWidth,
-                            height: frame.displayHeight,
-                            dataSize: data.length,
-                            format: rawFrame.format,
-                            duration: frame.duration,
-                            colorSpace: frame.colorSpace,
-                            codedWidth: frame.codedWidth,
-                            codedHeight: frame.codedHeight
-                        };
-                        */
-                        // Get current time in microseconds (multiply milliseconds by 1000)
-                        const currentTimeMicros = BigInt(Math.floor(currentTime * 1000));
-                        ws.sendVideo(currentTimeMicros, firstStreamId, frame.displayWidth, frame.displayHeight, data);
-
-                        rawFrame.close();
-                        lastFrameTime = currentTime;
-                        if (firstFrame === null) {
+                        if (firstFrame === null && window.ws?.mediaSendingEnabled) {
                             firstFrame = "Dfdf";
-
                             addTrackToCanvas(event);
-                            //addTrackToDOM(event);
                         }
                     }
                 }
