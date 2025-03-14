@@ -796,14 +796,215 @@ const handleMediaDirectorEvent = (event) => {
   console.log('Decoded media director event data (base64):', base64Data);
 }
 
+const canvasContainer = document.createElement('div');
+const canvas = document.createElement('canvas');
+let firstCanvas = true;
+let audioContext = null;
+let destination = null;
+let audioSources = null;
+let mixedAudioTrack = null;
+let canvasStream = null;
+let finalStream = null;
+const addTrackToCanvas = (event) => {
+    // Create canvas container with fixed position
+    canvasContainer.style.position = 'fixed';
+    canvasContainer.style.top = '10px';
+    canvasContainer.style.left = '10px';
+    canvasContainer.style.zIndex = '9999';
+    canvasContainer.style.background = '#000';
+    canvasContainer.style.padding = '5px';
+    canvasContainer.style.borderRadius = '4px';
+
+    // Create canvas element
+    canvas.width = 1920;  // Set initial size
+    canvas.height = 1080;
+    canvas.style.display = 'block';
+    
+    // Add elements to container and document
+    if (firstCanvas) {
+        canvasContainer.appendChild(canvas);
+        document.body.appendChild(canvasContainer);
+        firstCanvas = false;
+
+        audioContext = new AudioContext();
+
+        // Create media stream sources from global audio tracks
+        audioSources = globalAudioTracks.map(track => {
+            const mediaStream = new MediaStream([track]);
+            return audioContext.createMediaStreamSource(mediaStream);
+        });
+
+        // Create a destination node
+        destination = audioContext.createMediaStreamDestination();
+
+        // Connect all sources to the destination
+        audioSources.forEach(source => source.connect(destination));
+
+        mixedAudioTrack = destination.stream.getAudioTracks()[0];
+
+        canvasStream = canvas.captureStream(30);
+
+        finalStream = new MediaStream([
+            ...canvasStream.getVideoTracks(),
+            mixedAudioTrack
+          ]);
+
+
+              // Add recording controls
+    const controlsContainer = document.createElement('div');
+    controlsContainer.style.position = 'fixed';
+    controlsContainer.style.bottom = '10px';
+    controlsContainer.style.left = '10px';
+    controlsContainer.style.zIndex = '9999';
+    
+    const controlsDiv = document.createElement('div');
+    controlsDiv.style.display = 'flex';
+    controlsDiv.style.justifyContent = 'space-between';
+    controlsDiv.style.marginTop = '5px';
+    
+    const stopButton = document.createElement('button');
+    stopButton.textContent = '⏹️ Stop Recording';
+    stopButton.style.backgroundColor = '#ff4d4d';
+    stopButton.style.color = 'white';
+    stopButton.style.border = 'none';
+    stopButton.style.borderRadius = '4px';
+    stopButton.style.padding = '5px 10px';
+    stopButton.style.cursor = 'pointer';
+    
+    const downloadLink = document.createElement('a');
+    downloadLink.textContent = '💾 Download Recording';
+    downloadLink.style.backgroundColor = '#4CAF50';
+    downloadLink.style.color = 'white';
+    downloadLink.style.textDecoration = 'none';
+    downloadLink.style.borderRadius = '4px';
+    downloadLink.style.padding = '5px 10px';
+    downloadLink.style.display = 'none';
+    downloadLink.style.marginLeft = '10px';
+    
+    const statusText = document.createElement('div');
+    statusText.style.marginTop = '5px';
+    statusText.style.fontSize = '12px';
+    statusText.style.color = 'white';
+    
+    controlsDiv.appendChild(stopButton);
+    controlsDiv.appendChild(downloadLink);
+    controlsContainer.appendChild(controlsDiv);
+    controlsContainer.appendChild(statusText);
+    document.body.appendChild(controlsContainer);
+    
+    // Set up MediaRecorder
+    let mediaRecorder;
+    let recordingChunks = [];
+    let recordingStartTime;
+    let recordingTimer;
+    
+    try {
+        mediaRecorder = new MediaRecorder(finalStream, {
+            mimeType: 'video/mp4'
+        });
+        
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) {
+                recordingChunks.push(e.data);
+            }
+        };
+        
+        mediaRecorder.onstart = () => {
+            recordingStartTime = Date.now();
+            statusText.textContent = 'Recording started...';
+            
+            recordingTimer = setInterval(() => {
+                const duration = Math.floor((Date.now() - recordingStartTime) / 1000);
+                const minutes = Math.floor(duration / 60).toString().padStart(2, '0');
+                const seconds = (duration % 60).toString().padStart(2, '0');
+                statusText.textContent = `Recording: ${minutes}:${seconds}`;
+            }, 1000);
+        };
+        
+        mediaRecorder.onstop = () => {
+            clearInterval(recordingTimer);
+            const blob = new Blob(recordingChunks, { type: 'video/mp4;codecs=h264,aac' });
+            const url = URL.createObjectURL(blob);
+            
+            downloadLink.href = url;
+            downloadLink.download = `meeting-recording-${new Date().toISOString().replace(/:/g, '-')}.mp4`;
+            downloadLink.style.display = 'block';
+            
+            const sizeMB = (blob.size / (1024 * 1024)).toFixed(2);
+            statusText.textContent = `Recording complete: ${sizeMB} MB`;
+        };
+        
+        // Start recording immediately
+        mediaRecorder.start(1000);
+        
+        // Add click event to stop button
+        stopButton.addEventListener('click', () => {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                stopButton.style.display = 'none';
+            }
+        });
+        
+    } catch (error) {
+        console.error('MediaRecorder initialization error:', error);
+        statusText.textContent = `Recording not supported: ${error.message}`;
+        stopButton.disabled = true;
+        stopButton.style.backgroundColor = '#cccccc';
+    }
+    }
+    
+    // Get canvas context
+    const ctx = canvas.getContext('2d', { alpha: false });
+
+    // Create processor to get raw frames
+    const processor = new MediaStreamTrackProcessor({ track: event.track });
+    const reader = processor.readable.getReader();
+
+    // Function to render frames
+    async function renderFrames() {
+        try {
+            const { value: frame, done } = await reader.read();
+            
+            if (done) {
+                console.log('Track ended');
+                return;
+            }
+
+            if (frame) {
+                // Update canvas size if needed
+                if (canvas.width !== 1920 || canvas.height !== 1080) {
+                    canvas.width = 1920;
+                    canvas.height = 1080;
+                }
+
+                // Draw the frame to canvas
+                ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
+                
+                // Important: close the frame when we're done with it
+                frame.close();
+            }
+
+            // Request next frame
+            requestAnimationFrame(() => renderFrames());
+        } catch (error) {
+            console.error('Error rendering frame:', error);
+        }
+    }
+
+    // Start the rendering loop
+    renderFrames();
+}
+
 const addTrackToDOM = (event) => {
-    // Create a new MediaStream with the video track and first audio track
+    // Create separate streams for video and audio
     const previewStream = new MediaStream();
+    const audioStream = new MediaStream();
+    
     previewStream.addTrack(event.track);
     
-    // Add the first audio track if available
+    // Add the first audio track to both streams
     if (globalAudioTracks.length > 0) {
-        previewStream.addTrack(globalAudioTracks[0]);
+        audioStream.addTrack(globalAudioTracks[0]);
     }
     
     // Create a container div to hold controls
@@ -829,15 +1030,25 @@ const addTrackToDOM = (event) => {
     recordButton.style.padding = '5px 10px';
     recordButton.style.cursor = 'pointer';
     
-    // Create download link (initially hidden)
-    const downloadLink = document.createElement('a');
-    downloadLink.textContent = '💾 Download';
-    downloadLink.style.backgroundColor = '#4CAF50';
-    downloadLink.style.color = 'white';
-    downloadLink.style.textDecoration = 'none';
-    downloadLink.style.borderRadius = '4px';
-    downloadLink.style.padding = '5px 10px';
-    downloadLink.style.display = 'none';
+    // Create download links (initially hidden)
+    const downloadVideoLink = document.createElement('a');
+    downloadVideoLink.textContent = '💾 Download Video';
+    downloadVideoLink.style.backgroundColor = '#4CAF50';
+    downloadVideoLink.style.color = 'white';
+    downloadVideoLink.style.textDecoration = 'none';
+    downloadVideoLink.style.borderRadius = '4px';
+    downloadVideoLink.style.padding = '5px 10px';
+    downloadVideoLink.style.display = 'none';
+    downloadVideoLink.style.marginRight = '10px';
+
+    const downloadAudioLink = document.createElement('a');
+    downloadAudioLink.textContent = '🎵 Download Audio';
+    downloadAudioLink.style.backgroundColor = '#9C27B0';
+    downloadAudioLink.style.color = 'white';
+    downloadAudioLink.style.textDecoration = 'none';
+    downloadAudioLink.style.borderRadius = '4px';
+    downloadAudioLink.style.padding = '5px 10px';
+    downloadAudioLink.style.display = 'none';
     
     // Add status text
     const statusText = document.createElement('div');
@@ -847,7 +1058,8 @@ const addTrackToDOM = (event) => {
     
     // Add elements to container
     controlsDiv.appendChild(recordButton);
-    controlsDiv.appendChild(downloadLink);
+    controlsDiv.appendChild(downloadVideoLink);
+    controlsDiv.appendChild(downloadAudioLink);
     controlsContainer.appendChild(controlsDiv);
     controlsContainer.appendChild(statusText);
     
@@ -855,50 +1067,70 @@ const addTrackToDOM = (event) => {
     document.body.appendChild(controlsContainer);
     
     // Set up MediaRecorder and recording logic
-    let mediaRecorder;
-    let recordedChunks = [];
+    let videoRecorder;
+    let audioRecorder;
+    let videoChunks = [];
+    let audioChunks = [];
     let isRecording = false;
     let recordingStartTime;
     let recordingTimer;
     
-    // Find supported MIME type
-    const getMimeType = () => {
+    // Find supported MIME types
+    const getVideoMimeType = () => {
         const types = [
             'video/mp4;codecs=h264,aac',
         ];
         
         for (const type of types) {
             if (MediaRecorder.isTypeSupported(type)) {
-                console.log('Using MIME type:', type);
+                console.log('Using video MIME type:', type);
                 return type;
             }
         }
         return 'video/mp4'; // Default fallback
     };
+
+    const getAudioMimeType = () => {
+        const types = [
+            'audio/mpeg', // MP3
+            'audio/mp4;codecs=mp4a.40.2', // AAC
+        ];
+        
+        for (const type of types) {
+            if (MediaRecorder.isTypeSupported(type)) {
+                console.log('Using audio MIME type:', type);
+                return type;
+            }
+        }
+        return 'audio/webm'; // Default fallback
+    };
     
-    // Initialize MediaRecorder
+    // Initialize MediaRecorders
     try {
-        mediaRecorder = new MediaRecorder(previewStream, { 
-            mimeType: getMimeType()          
+        videoRecorder = new MediaRecorder(previewStream, { 
+            mimeType: getVideoMimeType()          
         });
         
-        console.log('MediaRecorder state:', mediaRecorder.state);
-        console.log('MediaRecorder options:', mediaRecorder.mimeType);
+        audioRecorder = new MediaRecorder(audioStream, {
+            mimeType: getAudioMimeType()
+        });
         
-        mediaRecorder.ondataavailable = (e) => {
-            console.log('Data available event, size:', e.data.size);
+        videoRecorder.ondataavailable = (e) => {
             if (e.data && e.data.size > 0) {
-                recordedChunks.push(e.data);
-                statusText.textContent = `Recording: ${recordedChunks.length} chunks captured (${Math.round(e.data.size / 1024)} KB)`;
+                videoChunks.push(e.data);
+            }
+        };
+
+        audioRecorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) {
+                audioChunks.push(e.data);
             }
         };
         
-        mediaRecorder.onstart = () => {
-            console.log('MediaRecorder started');
+        videoRecorder.onstart = audioRecorder.onstart = () => {
             recordingStartTime = Date.now();
             statusText.textContent = 'Recording started...';
             
-            // Update recording time display
             recordingTimer = setInterval(() => {
                 const duration = Math.floor((Date.now() - recordingStartTime) / 1000);
                 const minutes = Math.floor(duration / 60).toString().padStart(2, '0');
@@ -907,54 +1139,54 @@ const addTrackToDOM = (event) => {
             }, 1000);
         };
         
-        mediaRecorder.onstop = () => {
-            console.log('MediaRecorder stopped, chunks:', recordedChunks.length);
-            clearInterval(recordingTimer);
+        videoRecorder.onstop = () => {
+            if (videoChunks.length === 0) return;
             
-            if (recordedChunks.length === 0) {
-                statusText.textContent = 'Error: No data was recorded';
-                return;
-            }
+            const videoBlob = new Blob(videoChunks, { type: videoRecorder.mimeType });
+            const videoUrl = URL.createObjectURL(videoBlob);
             
-            // Create blob from recorded chunks
-            const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType });
-            console.log('Created blob, size:', blob.size);
-            statusText.textContent = `Recording complete: ${Math.round(blob.size / 1024 / 1024 * 100) / 100} MB`;
+            downloadVideoLink.href = videoUrl;
+            downloadVideoLink.download = `video-recording-${new Date().toISOString().replace(/:/g, '-')}.mp4`;
+            downloadVideoLink.style.display = 'block';
             
-            const url = URL.createObjectURL(blob);
-            
-            // Update download link
-            downloadLink.href = url;
-            downloadLink.download = `screen-recording-${new Date().toISOString().replace(/:/g, '-')}.mp4`;
-            downloadLink.style.display = 'block';
-            
-            // Reset recording state
-            isRecording = false;
-            recordButton.textContent = '⚫ Record';
-            recordButton.style.backgroundColor = '#00a2ff';
+            statusText.textContent = `Video size: ${Math.round(videoBlob.size / 1024 / 1024 * 100) / 100} MB`;
         };
-        
-        mediaRecorder.onerror = (event) => {
-            console.error('MediaRecorder error:', event);
-            statusText.textContent = 'Error during recording';
+
+        audioRecorder.onstop = () => {
+            if (audioChunks.length === 0) return;
+            
+            const audioBlob = new Blob(audioChunks, { type: audioRecorder.mimeType });
+            const audioUrl = URL.createObjectURL(audioBlob);
+            
+            downloadAudioLink.href = audioUrl;
+            downloadAudioLink.download = `audio-recording-${new Date().toISOString().replace(/:/g, '-')}.mp3`;
+            downloadAudioLink.style.display = 'block';
+            
+            statusText.textContent += ` | Audio size: ${Math.round(audioBlob.size / 1024 / 1024 * 100) / 100} MB`;
         };
         
         // Add click event to record button
         recordButton.addEventListener('click', () => {
             if (isRecording) {
                 // Stop recording
-                mediaRecorder.stop();
+                videoRecorder.stop();
+                audioRecorder.stop();
+                clearInterval(recordingTimer);
                 recordButton.textContent = '⚫ Record';
                 recordButton.style.backgroundColor = '#00a2ff';
+                isRecording = false;
             } else {
                 // Start recording
-                recordedChunks = [];
+                videoChunks = [];
+                audioChunks = [];
                 try {
-                    mediaRecorder.start(1000); // Request data every second
+                    videoRecorder.start(1000);
+                    audioRecorder.start(1000);
                     isRecording = true;
                     recordButton.textContent = '⏹️ Stop';
                     recordButton.style.backgroundColor = '#ff4d4d';
-                    downloadLink.style.display = 'none';
+                    downloadVideoLink.style.display = 'none';
+                    downloadAudioLink.style.display = 'none';
                 } catch (err) {
                     console.error('Failed to start recording:', err);
                     statusText.textContent = `Error starting recording: ${err.message}`;
@@ -1053,7 +1285,8 @@ const handleVideoTrack = async (event) => {
                         if (firstFrame === null) {
                             firstFrame = "Dfdf";
 
-                            addTrackToDOM(event);
+                            addTrackToCanvas(event);
+                            //addTrackToDOM(event);
                         }
                     }
                 }
