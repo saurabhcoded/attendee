@@ -1038,9 +1038,84 @@ const handleAudioTrack = async (event) => {
       console.error('Error setting up audio interceptor:', error);
   }
 };
+let outboundCreated = false;
+let pcOutbound = null;
+let pendingTrackOperations = [];
+let isNegotiating = false;
 
 new RTCInterceptor({
-    onPeerConnectionCreate: (peerConnection) => {
+    onPeerConnectionCreate: async (peerConnection) => {
+        console.log('onPeerConnectionCreate', peerConnection);
+
+        if (!outboundCreated) {
+            outboundCreated = true;
+            pcOutbound = new RTCPeerConnection();
+            
+            // Add negotiation needed handler
+            pcOutbound.onnegotiationneeded = async () => {
+                if (isNegotiating) {
+                    console.log('Negotiation already in progress, skipping...');
+                    return;
+                }
+                
+                try {
+                    isNegotiating = true;
+                    console.log('Starting negotiation...');
+                    
+                    const offer = await pcOutbound.createOffer();
+                    await pcOutbound.setLocalDescription(offer);
+                    
+                    const response = await fetch("http://localhost:8080/offer", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            sdp: pcOutbound.localDescription.sdp,
+                            type: pcOutbound.localDescription.type
+                        })
+                    });
+                    
+                    const answer = await response.json();
+                    await pcOutbound.setRemoteDescription(answer);
+                    console.log('Negotiation completed successfully');
+                } catch (err) {
+                    console.error('Error during negotiation:', err);
+                } finally {
+                    isNegotiating = false;
+                }
+            };
+
+            // Handle signaling state changes
+            pcOutbound.onsignalingstatechange = () => {
+                if (pcOutbound.signalingState === 'stable') {
+                    // Process any pending track operations
+                    while (pendingTrackOperations.length > 0) {
+                        const operation = pendingTrackOperations.shift();
+                        operation();
+                    }
+                }
+            };
+
+            // Initial connection setup
+            const offer = await pcOutbound.createOffer({
+                offerToReceiveAudio: true,
+                offerToReceiveVideo: true
+            });
+            await pcOutbound.setLocalDescription(offer);
+            
+            const response = await fetch("http://localhost:8080/offer", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    sdp: pcOutbound.localDescription.sdp,
+                    type: pcOutbound.localDescription.type
+                })
+            });
+            
+            const answer = await response.json();
+            await pcOutbound.setRemoteDescription(answer);
+            console.log("Successfully connected to Python server via WebRTC!");
+        }
+
         console.log('New RTCPeerConnection created:', peerConnection);
         peerConnection.addEventListener('datachannel', (event) => {
             console.log('datachannel', event);
@@ -1053,21 +1128,36 @@ new RTCInterceptor({
         });
 
         peerConnection.addEventListener('track', (event) => {
-            // Log the track and its associated streams
             console.log('New track:', {
                 trackId: event.track.id,
-                streams: event.streams,
-                streamIds: event.streams.map(stream => stream.id),
-                // Get any msid information
-                transceiver: event.transceiver,
-                // Get the RTP parameters which might contain stream IDs
-                rtpParameters: event.transceiver?.sender.getParameters()
+                kind: event.track.kind,
+                streams: event.streams
             });
-            if (event.track.kind === 'audio') {
-                handleAudioTrack(event);
-            }
-            if (event.track.kind === 'video') {
-                handleVideoTrack(event);
+
+            if (outboundCreated) {
+                const inboundStream = event.streams[0];
+                inboundStream.getTracks().forEach(track => {
+                    const addTrack = () => {
+                        // Instead of cloning, we'll create a MediaStreamTrackProcessor and Generator
+                        const processor = new MediaStreamTrackProcessor({ track });
+                        const generator = new MediaStreamTrackGenerator({ kind: track.kind });
+                        
+                        // Pipe the media through
+                        processor.readable
+                            .pipeTo(generator.writable)
+                            .catch(err => console.error('Error piping track:', err));
+
+                        console.log('Adding processed track to pcOutbound', generator);
+                        pcOutbound.addTrack(generator, inboundStream);
+                    };
+
+                    if (isNegotiating || pcOutbound.signalingState !== 'stable') {
+                        console.log('Queuing track operation for later');
+                        pendingTrackOperations.push(addTrack);
+                    } else {
+                        addTrack();
+                    }
+                });
             }
         });
 
