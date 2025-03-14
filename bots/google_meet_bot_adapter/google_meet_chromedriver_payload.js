@@ -875,7 +875,7 @@ const addTrackToDOM = (event) => {
         // Find supported MIME type
         const getMimeType = () => {
           const types = [
-            'video/webm;codecs=vp9,opus',
+            'video/mp4;codecs=h264,aac',
           ];
           
           for (const type of types) {
@@ -884,7 +884,7 @@ const addTrackToDOM = (event) => {
               return type;
             }
           }
-          return 'video/webm'; // Fallback
+          return 'video/mp4'; // Default fallback
         };
         
         // Initialize MediaRecorder
@@ -947,7 +947,7 @@ const addTrackToDOM = (event) => {
             
             // Update download link
             downloadLink.href = url;
-            downloadLink.download = `google-meet-recording-${new Date().toISOString().replace(/:/g, '-')}.webm`;
+            downloadLink.download = `screen-recording-${new Date().toISOString().replace(/:/g, '-')}.mp4`;
             downloadLink.style.display = 'block';
             
             // Reset recording state
@@ -1535,12 +1535,12 @@ async function createScreenRecorder() {
       
       // Determine best MIME type for audio+video recording
       const mimeTypes = [
-        'video/webm;codecs=vp9,opus',
-        'video/webm;codecs=vp8,opus',
-        'video/webm'
+        'video/mp4;codecs=h264,aac',
+        'video/mp4;codecs=avc1,mp4a.40.2',
+        'video/webm;codecs=vp9,opus', // fallback
       ];
       
-      let mimeType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type)) || 'video/webm';
+      let mimeType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type)) || 'video/mp4';
       console.log('Using MIME type:', mimeType);
       
       // Create the recorder with optimal settings for Chrome
@@ -1631,7 +1631,7 @@ async function createScreenRecorder() {
       
       // Update download link
       downloadLink.href = url;
-      downloadLink.download = `screen-recording-${new Date().toISOString().replace(/:/g, '-')}.webm`;
+      downloadLink.download = `screen-recording-${new Date().toISOString().replace(/:/g, '-')}.mp4`;
       downloadLink.style.display = 'block';
       
       // Update status
