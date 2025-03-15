@@ -48,6 +48,19 @@ logger = logging.getLogger(__name__)
 
 
 class BotController:
+    def on_encoded_mp4_chunk(self, encoded_mp4_data):
+        import os
+        
+        # Define the filename
+        filename = "mymov.mp4"
+        
+        # Check if file exists and open in appropriate mode
+        mode = 'ab' if os.path.exists(filename) else 'wb'
+        
+        # Write or append data to the file
+        with open(filename, mode) as f:
+            f.write(encoded_mp4_data)
+
     def get_google_meet_bot_adapter(self):
         from bots.google_meet_bot_adapter import GoogleMeetBotAdapter
 
@@ -60,6 +73,7 @@ class BotController:
             add_mixed_audio_chunk_callback=self.gstreamer_pipeline.on_mixed_audio_raw_data_received_callback,
             upsert_caption_callback=self.closed_caption_manager.upsert_caption,
             automatic_leave_configuration=self.automatic_leave_configuration,
+            add_encoded_mp4_chunk_callback=self.on_encoded_mp4_chunk,
         )
 
     def get_teams_bot_adapter(self):
@@ -74,6 +88,7 @@ class BotController:
             add_mixed_audio_chunk_callback=self.gstreamer_pipeline.on_mixed_audio_raw_data_received_callback,
             upsert_caption_callback=self.closed_caption_manager.upsert_caption,
             automatic_leave_configuration=self.automatic_leave_configuration,
+            add_encoded_mp4_chunk_callback=self.on_encoded_mp4_chunk,
         )
 
     def get_zoom_bot_adapter(self):
@@ -215,10 +230,10 @@ class BotController:
                 os.environ.get("AWS_RECORDING_STORAGE_BUCKET_NAME"),
                 self.get_recording_filename(),
             )
-            file_uploader.upload_file(self.get_gstreamer_file_location())
+            file_uploader.upload_file("mymov.mp4")
             file_uploader.wait_for_upload()
             logger.info("File uploader finished uploading file")
-            file_uploader.delete_file(self.get_gstreamer_file_location())
+            file_uploader.delete_file("mymov.mp4")
             logger.info("File uploader deleted file from local filesystem")
             self.recording_file_saved(file_uploader.key)
 
