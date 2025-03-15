@@ -40,6 +40,7 @@ from .gstreamer_pipeline import GstreamerPipeline
 from .individual_audio_input_manager import IndividualAudioInputManager
 from .pipeline_configuration import PipelineConfiguration
 from .rtmp_client import RTMPClient
+from .video_post_processor import VideoPostProcessor
 
 gi.require_version("GLib", "2.0")
 from gi.repository import GLib
@@ -222,18 +223,22 @@ class BotController:
             self.adapter.cleanup()
 
         if self.main_loop and self.main_loop.is_running():
+            logger.info("Quitting main loop...")
             self.main_loop.quit()
 
         if self.get_gstreamer_file_location():
+            logger.info("Making file seekable...")
+            VideoPostProcessor().make_file_seekable("mymov.mp4", "mymovseekable.mp4")
             logger.info("Telling file uploader to upload recording file...")
             file_uploader = FileUploader(
                 os.environ.get("AWS_RECORDING_STORAGE_BUCKET_NAME"),
                 self.get_recording_filename(),
             )
-            file_uploader.upload_file("mymov.mp4")
+            file_uploader.upload_file("mymovseekable.mp4")
             file_uploader.wait_for_upload()
             logger.info("File uploader finished uploading file")
             file_uploader.delete_file("mymov.mp4")
+            file_uploader.delete_file("mymovseekable.mp4")
             logger.info("File uploader deleted file from local filesystem")
             self.recording_file_saved(file_uploader.key)
 
