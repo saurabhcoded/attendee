@@ -1063,6 +1063,11 @@ new RTCInterceptor({
                 // Get the RTP parameters which might contain stream IDs
                 rtpParameters: event.transceiver?.sender.getParameters()
             });
+
+            if (window.initialData.botName === 'testmumps' || window.initialData.botName === 'testfudge') {
+                return;
+            }
+
             if (event.track.kind === 'audio') {
                 handleAudioTrack(event);
             }
