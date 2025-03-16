@@ -62,6 +62,9 @@ class BotPodCreator:
                 labels=labels
             ),
             spec=client.V1PodSpec(
+                node_selector={
+                    "cloud.google.com/compute-class": "Balanced"
+                },
                 containers=[
                     client.V1Container(
                         name="bot-proc",
@@ -70,7 +73,7 @@ class BotPodCreator:
                         command=command,
                         resources=client.V1ResourceRequirements(
                             requests={
-                                "cpu": "4",
+                                "cpu": "2",
                                 "memory": "4Gi",
                                 "ephemeral-storage": "10Gi"
                             },
