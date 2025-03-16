@@ -62,6 +62,9 @@ class BotPodCreator:
                 labels=labels
             ),
             spec=client.V1PodSpec(
+                node_selector={
+                    "cloud.google.com/compute-class": "Scale-Out"
+                },
                 containers=[
                     client.V1Container(
                         name="bot-proc",
