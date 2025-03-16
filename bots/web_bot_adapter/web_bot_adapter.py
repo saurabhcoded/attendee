@@ -357,7 +357,9 @@ class WebBotAdapter(BotAdapter):
 
         options = uc.ChromeOptions()
 
+        options.add_argument("--autoplay-policy=no-user-gesture-required")
         options.add_argument("--use-fake-ui-for-media-stream")
+        options.add_argument("--use-fake-device-for-media-stream")
         options.add_argument("--window-size=1920x1080")
         options.add_argument("--no-sandbox")
         # options.add_argument('--headless=new')
@@ -387,7 +389,7 @@ class WebBotAdapter(BotAdapter):
             version_main=133,
         )
 
-        initial_data_code = f"window.initialData = {{websocketPort: {self.websocket_port}}}"
+        initial_data_code = f"window.initialData = {{botName: '{self.display_name}', websocketPort: {self.websocket_port}}}"
 
         # Define the CDN libraries needed
         CDN_LIBRARIES = ["https://cdnjs.cloudflare.com/ajax/libs/protobufjs/7.4.0/protobuf.min.js", "https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"]
