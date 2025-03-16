@@ -73,10 +73,7 @@ class CaptionManager {
 
     singleCaptionSynced(caption) {
         this.captions.set(caption.captionId, caption);
-        this.ws.sendJson({
-            type: 'CaptionUpdate',
-            caption: caption
-        });
+        this.ws.sendClosedCaptionUpdate(caption);
     }
 }
 
@@ -95,6 +92,15 @@ class UserManager {
         this.ws = ws;
     }
 
+    deviceForStreamIsActive(streamId) {
+        for(const deviceOutput of this.deviceOutputMap.values()) {
+            if (deviceOutput.streamId === streamId) {
+                return !deviceOutput.disabled;
+            }
+        }
+
+        return false;
+    }
 
     getDeviceOutput(deviceId, outputType) {
         return this.deviceOutputMap.get(`${deviceId}-${outputType}`);
@@ -251,30 +257,49 @@ class WebSocketClient {
 
       this.mediaSendingEnabled = false;
       this.lastVideoFrameTime = performance.now();
-      this.blackFrameInterval = null;
+      this.fillerFrameInterval = null;
+
+      this.lastVideoFrame = this.getBlackFrame();
+      this.blackVideoFrame = this.getBlackFrame();
   }
 
-  startBlackFrameTimer() {
-    if (this.blackFrameInterval) return; // Don't start if already running
+  getBlackFrame() {
+    // Create black frame data (I420 format)
+    const width = 1920, height = 1080;
+    const yPlaneSize = width * height;
+    const uvPlaneSize = (width * height) / 4;
+
+    const frameData = new Uint8Array(yPlaneSize + 2 * uvPlaneSize);
+    // Y plane (black = 0)
+    frameData.fill(0, 0, yPlaneSize);
+    // U and V planes (black = 128)
+    frameData.fill(128, yPlaneSize);
+
+    return {width, height, frameData};
+  }
+
+  currentVideoStreamIsActive() {
+    const result = window.userManager?.deviceForStreamIsActive(window.videoTrackManager?.getStreamIdToSendCached());
+
+    // This avoids a situation where we transition from no video stream to video stream and we send a filler frame from the
+    // last time we had a video stream and it's not the same as the current video stream.
+    if (!result)
+        this.lastVideoFrame = this.blackVideoFrame;
+
+    return result;
+  }
+
+  startFillerFrameTimer() {
+    if (this.fillerFrameInterval) return; // Don't start if already running
     
-    this.blackFrameInterval = setInterval(() => {
+    this.fillerFrameInterval = setInterval(() => {
         try {
             const currentTime = performance.now();
-            if (currentTime - this.lastVideoFrameTime >= 500 && this.mediaSendingEnabled) {
-                // Create black frame data (I420 format)
-                const width = 1920, height = 1080;
-                const yPlaneSize = width * height;
-                const uvPlaneSize = (width * height) / 4;
-                
-                const frameData = new Uint8Array(yPlaneSize + 2 * uvPlaneSize);
-                // Y plane (black = 0)
-                frameData.fill(0, 0, yPlaneSize);
-                // U and V planes (black = 128)
-                frameData.fill(128, yPlaneSize);
-                
+            if (currentTime - this.lastVideoFrameTime >= 500 && this.mediaSendingEnabled) {                
                 // Fix: Math.floor() the milliseconds before converting to BigInt
                 const currentTimeMicros = BigInt(Math.floor(currentTime) * 1000);
-                this.sendVideo(currentTimeMicros, '0', width, height, frameData);
+                const frameToUse = this.currentVideoStreamIsActive() ? this.lastVideoFrame : this.blackVideoFrame;
+                this.sendVideo(currentTimeMicros, '0', frameToUse.width, frameToUse.height, frameToUse.frameData);
             }
         } catch (error) {
             console.error('Error in black frame timer:', error);
@@ -282,21 +307,21 @@ class WebSocketClient {
     }, 250);
   }
 
-    stopBlackFrameTimer() {
-        if (this.blackFrameInterval) {
-            clearInterval(this.blackFrameInterval);
-            this.blackFrameInterval = null;
+    stopFillerFrameTimer() {
+        if (this.fillerFrameInterval) {
+            clearInterval(this.fillerFrameInterval);
+            this.fillerFrameInterval = null;
         }
     }
 
   enableMediaSending() {
     this.mediaSendingEnabled = true;
-    this.startBlackFrameTimer();
+    this.startFillerFrameTimer();
   }
 
   disableMediaSending() {
     this.mediaSendingEnabled = false;
-    this.stopBlackFrameTimer();
+    this.stopFillerFrameTimer();
   }
 
   handleMessage(data) {
@@ -343,9 +368,17 @@ class WebSocketClient {
       }
   }
 
-  
+  sendClosedCaptionUpdate(item) {
+    if (!this.mediaSendingEnabled)
+        return;
 
-  sendAudio(timestamp, audioData) {
+    this.sendJson({
+        type: 'CaptionUpdate',
+        caption: item
+    });
+  }
+
+  sendAudio(timestamp, streamId, audioData) {
       if (this.ws.readyState !== WebSocket.OPEN) {
           console.error('WebSocket is not connected for audio send', this.ws.readyState);
           return;
@@ -358,7 +391,7 @@ class WebSocketClient {
 
       try {
           // Create final message: type (4 bytes) + timestamp (8 bytes) + audio data
-          const message = new Uint8Array(4 + 8 + audioData.buffer.byteLength);
+          const message = new Uint8Array(4 + 8 + 4 + audioData.buffer.byteLength);
           const dataView = new DataView(message.buffer);
           
           // Set message type (3 for AUDIO)
@@ -367,8 +400,11 @@ class WebSocketClient {
           // Set timestamp as BigInt64
           dataView.setBigInt64(4, BigInt(timestamp), true);
 
+          // Set streamId length and bytes
+          dataView.setInt32(12, streamId, true);
+
           // Copy audio data after type and timestamp
-          message.set(new Uint8Array(audioData.buffer), 12);
+          message.set(new Uint8Array(audioData.buffer), 16);
           
           // Send the binary message
           this.ws.send(message.buffer);
@@ -388,7 +424,8 @@ class WebSocketClient {
       }
       
       this.lastVideoFrameTime = performance.now();
-
+      this.lastVideoFrame = {width, height, frameData: videoData};
+      
       try {
           // Convert streamId to UTF-8 bytes
           const streamIdBytes = new TextEncoder().encode(streamId);
@@ -674,6 +711,8 @@ window.ws = ws;
 const userManager = new UserManager(ws);
 const captionManager = new CaptionManager(ws);
 const videoTrackManager = new VideoTrackManager(ws);
+window.videoTrackManager = videoTrackManager;
+window.userManager = userManager;
 
 // Create decoders for all message types
 const messageDecoders = {};
@@ -886,6 +925,8 @@ const handleAudioTrack = async (event) => {
     const readable = processor.readable;
     const writable = generator.writable;
 
+    const firstStreamId = event.streams[0]?.id;
+
     // Transform stream to intercept frames
     const transformStream = new TransformStream({
         async transform(frame, controller) {
@@ -903,12 +944,29 @@ const handleAudioTrack = async (event) => {
                 // Copy the audio data
                 const numChannels = frame.numberOfChannels;
                 const numSamples = frame.numberOfFrames;
-                const audioData = new Float32Array(numChannels * numSamples);
+                const audioData = new Float32Array(numSamples);
                 
                 // Copy data from each channel
-                for (let channel = 0; channel < numChannels; channel++) {
-                    frame.copyTo(audioData.subarray(channel * numSamples, (channel + 1) * numSamples), 
-                              { planeIndex: channel });
+                // If multi-channel, average all channels together
+                if (numChannels > 1) {
+                    // Temporary buffer to hold each channel's data
+                    const channelData = new Float32Array(numSamples);
+                    
+                    // Sum all channels
+                    for (let channel = 0; channel < numChannels; channel++) {
+                        frame.copyTo(channelData, { planeIndex: channel });
+                        for (let i = 0; i < numSamples; i++) {
+                            audioData[i] += channelData[i];
+                        }
+                    }
+                    
+                    // Average by dividing by number of channels
+                    for (let i = 0; i < numSamples; i++) {
+                        audioData[i] /= numChannels;
+                    }
+                } else {
+                    // If already mono, just copy the data
+                    frame.copyTo(audioData, { planeIndex: 0 });
                 }
 
                 // console.log('frame', frame)
@@ -916,7 +974,8 @@ const handleAudioTrack = async (event) => {
 
                 // Check if audio format has changed
                 const currentFormat = {
-                    numberOfChannels: frame.numberOfChannels,
+                    numberOfChannels: 1,
+                    originalNumberOfChannels: frame.numberOfChannels,
                     numberOfFrames: frame.numberOfFrames,
                     sampleRate: frame.sampleRate,
                     format: frame.format,
@@ -934,13 +993,14 @@ const handleAudioTrack = async (event) => {
                 }
 
                 // If the audioData buffer is all zeros, then we don't want to send it
-                if (audioData.every(value => value === 0)) {
-                    return;
-                }
+                // Removing this since we implemented 3 audio sources in gstreamer pipeline
+                // if (audioData.every(value => value === 0)) {
+                //    return;
+                // }
 
                 // Send audio data through websocket
                 const currentTimeMicros = BigInt(Math.floor(performance.now() * 1000));
-                ws.sendAudio(currentTimeMicros, audioData);
+                ws.sendAudio(currentTimeMicros, firstStreamId, audioData);
 
                 // Pass through the original frame
                 controller.enqueue(frame);
