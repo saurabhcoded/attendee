@@ -74,7 +74,7 @@ class BotPodCreator:
                         command=command,
                         resources=client.V1ResourceRequirements(
                             requests={
-                                "cpu": "4",
+                                "cpu": "2",
                                 "memory": "4Gi",
                                 "ephemeral-storage": "10Gi"
                             },
