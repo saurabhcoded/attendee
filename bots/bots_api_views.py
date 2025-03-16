@@ -127,7 +127,8 @@ def launch_bot(bot):
         from .bot_pod_creator import BotPodCreator
 
         bot_pod_creator = BotPodCreator()
-        bot_pod_creator.create_bot_pod(bot_id=bot.id, bot_name=bot.k8s_pod_name())
+        result = bot_pod_creator.create_bot_pod(bot_id=bot.id, bot_name=bot.k8s_pod_name())
+        logging.info(f"Bot pod created: {result}")
     else:
         # Default to launching bot via celery
         run_bot.delay(bot.id)
