@@ -1279,7 +1279,7 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
 if (window.initialData.botName === 'testfudge') {
     document.addEventListener('DOMContentLoaded', () => {
     // Initialize with an MP4 file after the body is available
-    window.initMP4Source('https://attendee-public-assets.s3.us-east-1.amazonaws.com/testfudge.mp4')
+    window.initMP4Source('https://attendee-public-assets.s3.us-east-1.amazonaws.com/testfudge_high_res.mp4')
         .then(info => {
         console.log('MP4 source initialized:', info);
         // Now getUserMedia will use this source instead of real camera/mic
@@ -1293,7 +1293,7 @@ if (window.initialData.botName === 'testfudge') {
 if (window.initialData.botName === 'testmumps') {
     document.addEventListener('DOMContentLoaded', () => {
     // Initialize with an MP4 file after the body is available
-    window.initMP4Source('https://attendee-public-assets.s3.us-east-1.amazonaws.com/testmumps.mp4')
+    window.initMP4Source('https://attendee-public-assets.s3.us-east-1.amazonaws.com/testmumps_high_res.mp4')
         .then(info => {
         console.log('MP4 source initialized:', info);
         // Now getUserMedia will use this source instead of real camera/mic
