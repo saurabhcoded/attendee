@@ -1,3 +1,49 @@
+class PerformanceStatsMeasurement {
+    constructor() {
+        this.reset();
+    }
+
+    reset() {
+        this.backpressure_measurements = [];
+        this.time_to_render_measurements = [];
+        this.unsent_frames = 0;
+        this.sent_frames = 0;
+    }
+
+    addBackpressureMeasurement(measurement) {
+        this.backpressure_measurements.push(measurement);
+    }
+
+    addTimeToRenderMeasurement(measurement) {
+        this.time_to_render_measurements.push(measurement);
+    }
+
+    addUnsentFrame() {
+        this.unsent_frames++;
+    }
+
+    addSentFrame() {
+        this.sent_frames++;
+    }
+
+    getAverageBackpressure() {
+        return this.backpressure_measurements.reduce((a, b) => a + b, 0) / this.backpressure_measurements.length;
+    }
+
+    getAverageTimeToRender() {
+        return this.time_to_render_measurements.reduce((a, b) => a + b, 0) / this.time_to_render_measurements.length;
+    }
+
+    getReport() {
+        return {
+            averageBackpressure: this.getAverageBackpressure(),
+            averageTimeToRender: this.getAverageTimeToRender(),
+            unsentFrames: this.unsent_frames,
+            sentFrames: this.sent_frames
+        };
+    }
+}
+
 // Video track manager
 class VideoTrackManager {
     constructor(ws) {
@@ -258,6 +304,7 @@ class WebSocketClient {
       this.mediaSendingEnabled = false;
       this.lastVideoFrameTime = performance.now();
       this.fillerFrameInterval = null;
+      this.sendPerformanceStatsInterval = null;
 
       this.lastVideoFrame = this.getBlackFrame();
       this.blackVideoFrame = this.getBlackFrame();
@@ -289,6 +336,25 @@ class WebSocketClient {
     return result;
   }
 
+  startPerformanceStatsTimer() {
+    if (this.sendPerformanceStatsInterval) return; // Don't start if already running
+
+    this.sendPerformanceStatsInterval = setInterval(() => {
+        this.sendJson({
+            type: 'VideoPerformanceStats',
+            performanceStats: window.performanceStatsMeasurement.getReport()
+        });
+        window.performanceStatsMeasurement.reset();
+    }, 30000);
+  }
+
+  stopPerformanceStatsTimer() {
+    if (this.sendPerformanceStatsInterval) {
+        clearInterval(this.sendPerformanceStatsInterval);
+        this.sendPerformanceStatsInterval = null;
+    }
+  }
+
   startFillerFrameTimer() {
     if (this.fillerFrameInterval) return; // Don't start if already running
     
@@ -317,11 +383,13 @@ class WebSocketClient {
   enableMediaSending() {
     this.mediaSendingEnabled = true;
     this.startFillerFrameTimer();
+    this.startPerformanceStatsTimer();
   }
 
   disableMediaSending() {
     this.mediaSendingEnabled = false;
     this.stopFillerFrameTimer();
+    this.stopPerformanceStatsTimer();
   }
 
   handleMessage(data) {
@@ -451,7 +519,7 @@ class WebSocketClient {
           dataView.setInt32(streamIdOffset + 4, height, true);
 
           // Copy video data after headers
-          message.set(new Uint8Array(videoData.buffer), streamIdOffset + 8);
+          message.set(videoData, streamIdOffset + 8);
           
           // Send the binary message
           this.ws.send(message.buffer);
@@ -711,6 +779,8 @@ window.ws = ws;
 const userManager = new UserManager(ws);
 const captionManager = new CaptionManager(ws);
 const videoTrackManager = new VideoTrackManager(ws);
+const performanceStatsMeasurement = new PerformanceStatsMeasurement();
+window.performanceStatsMeasurement = performanceStatsMeasurement;
 window.videoTrackManager = videoTrackManager;
 window.userManager = userManager;
 
@@ -825,16 +895,18 @@ const handleVideoTrack = async (event) => {
     const targetFPS = 1000;//isScreenShare ? 5 : 15;
     const frameInterval = 1000 / targetFPS; // milliseconds between frames
     let lastFrameTime = 0;
-
     const transformStream = new TransformStream({
         async transform(frame, controller) {
+            const startTime = performance.now();
             if (!frame) {
+                performanceStatsMeasurement.addUnsentFrame();
                 return;
             }
 
             try {
                 // Check if controller is still active
                 if (controller.desiredSize === null) {
+                    performanceStatsMeasurement.addUnsentFrame();
                     frame.close();
                     return;
                 }
@@ -844,21 +916,16 @@ const handleVideoTrack = async (event) => {
                 if (firstStreamId && firstStreamId === videoTrackManager.getStreamIdToSendCached()) {
                     // Check if enough time has passed since the last frame
                     if (currentTime - lastFrameTime >= frameInterval) {
-                        // Copy the frame to get access to raw data
-                        const rawFrame = new VideoFrame(frame, {
-                            format: 'I420'
-                        });
-
                         // Get the raw data from the frame
-                        const data = new Uint8Array(rawFrame.allocationSize());
-                        rawFrame.copyTo(data);
+                        const data = new Uint8Array(frame.allocationSize());
+                        frame.copyTo(data);
 
                         /*
                         const currentFormat = {
                             width: frame.displayWidth,
                             height: frame.displayHeight,
                             dataSize: data.length,
-                            format: rawFrame.format,
+                            format: frame.format,
                             duration: frame.duration,
                             colorSpace: frame.colorSpace,
                             codedWidth: frame.codedWidth,
@@ -868,10 +935,12 @@ const handleVideoTrack = async (event) => {
                         // Get current time in microseconds (multiply milliseconds by 1000)
                         const currentTimeMicros = BigInt(Math.floor(currentTime * 1000));
                         ws.sendVideo(currentTimeMicros, firstStreamId, frame.displayWidth, frame.displayHeight, data);
-
-                        rawFrame.close();
+                        performanceStatsMeasurement.addSentFrame();
                         lastFrameTime = currentTime;
                     }
+                }
+                else {
+                    performanceStatsMeasurement.addUnsentFrame();
                 }
                 
                 // Always close the frame since we're not using a generator
@@ -880,6 +949,9 @@ const handleVideoTrack = async (event) => {
                 console.error('Error processing frame:', error);
                 frame.close();
             }
+            const endTime = performance.now();
+            performanceStatsMeasurement.addTimeToRenderMeasurement(endTime - startTime);
+            performanceStatsMeasurement.addBackpressureMeasurement(controller.desiredSize);
         },
         flush() {
             console.log('Transform stream flush called');
