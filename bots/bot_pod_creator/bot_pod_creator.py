@@ -63,7 +63,8 @@ class BotPodCreator:
             ),
             spec=client.V1PodSpec(
                 node_selector={
-                    "cloud.google.com/compute-class": "Balanced"
+                    "cloud.google.com/compute-class": "Balanced",
+                    "supported-cpu-platform.cloud.google.com/Intel_Cascade_Lake": "true"
                 },
                 containers=[
                     client.V1Container(
