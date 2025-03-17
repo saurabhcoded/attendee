@@ -184,6 +184,7 @@ SPECTACULAR_SETTINGS = {
     ],
     "SERVERS": [
         {"url": "https://app.attendee.dev", "description": "Production server"},
+        {"url": "http://localhost:8000", "description": "Development server"},
     ],
 }
 # publish with python manage.py spectacular --color --file docs/openapi.yml
@@ -194,6 +195,7 @@ STORAGES = {
         "OPTIONS": {
             "access_key": os.getenv("AWS_ACCESS_KEY_ID"),
             "secret_key": os.getenv("AWS_SECRET_ACCESS_KEY"),
+            "region_name": os.getenv("AWS_REGION"),
         },
     },
     "staticfiles": {

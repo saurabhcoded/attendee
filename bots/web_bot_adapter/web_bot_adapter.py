@@ -3,6 +3,7 @@ import datetime
 import json
 import logging
 import os
+import subprocess
 import threading
 import time
 from time import sleep
@@ -24,6 +25,13 @@ logger = logging.getLogger(__name__)
 
 def half_ceil(x):
     return (x + 1) // 2
+
+
+# TODO: find a way to use the `RTMPClient` that has ffmpeg pipeline already
+ffmpeg_process = subprocess.Popen(
+    ["ffmpeg", "-ac", "1", "-i", "pipe:0", "-f", "pulse", "VirtualMic"],
+    stdin=subprocess.PIPE,
+)
 
 
 def scale_i420(frame, frame_size, new_size):
@@ -552,5 +560,15 @@ class WebBotAdapter(BotAdapter):
                 self.send_message_callback({"message": self.Messages.ADAPTER_REQUESTED_BOT_LEAVE_MEETING, "leave_reason": BotAdapter.LEAVE_REASON.AUTO_LEAVE_SILENCE})
                 return
 
-    def send_raw_audio(self, bytes, sample_rate):
-        logger.info("send_raw_audio not supported in google meet bots")
+    def send_raw_audio(self, bytes: bytes, sample_rate: int) -> None:
+        # TODO: Testing raw audio, byte looks corrupted from dequeuing the audio chunks
+        fname = "output.wav"
+        try:
+            assert ffmpeg_process.stdin is not None, "FFmpeg process is broken"
+            bytes = open(fname, "rb").read()
+
+            ffmpeg_process.stdin.write(bytes)
+            ffmpeg_process.stdin.flush()
+            logger.info(f"Audio sent, sample_rate: {sample_rate}, bytes: {len(bytes)}")
+        except Exception as e:
+            logger.error(f"Error in sending audio: {e}")
