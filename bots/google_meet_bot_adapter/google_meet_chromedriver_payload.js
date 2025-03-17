@@ -19,7 +19,7 @@ class FullCaptureManager {
             return;
         }
 
-        document.querySelectorAll('body *').forEach(el => el.tagName !== 'VIDEO' && !el.querySelector('video') ? el.style.display = 'none' : '');
+        //document.querySelectorAll('body *').forEach(el => el.tagName !== 'VIDEO' && !el.querySelector('video') ? el.style.display = 'none' : '');
 
         // Get main element dimensions
         const mainRect = mainElement.getBoundingClientRect();
