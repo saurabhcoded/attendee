@@ -1219,9 +1219,20 @@ window.initMP4Source = function(mp4Url) {
     videoElement.crossOrigin = 'anonymous'; // Handle CORS if needed
     videoElement.src = mp4Url;
     videoElement.loop = true; // Loop the video
+    let canPlayCalled = false;
     
     // Wait for video to be loaded enough to play
     videoElement.oncanplay = () => {
+      if (canPlayCalled) 
+      {
+        resolve({
+          videoWidth: videoElement.videoWidth,
+          videoHeight: videoElement.videoHeight,
+          duration: videoElement.duration
+        });
+        return;
+      }
+      canPlayCalled = true;
       console.log("MP4 source ready:", mp4Url);
       console.log("Video dimensions:", videoElement.videoWidth, "x", videoElement.videoHeight);
       console.log("Video duration:", videoElement.duration);
