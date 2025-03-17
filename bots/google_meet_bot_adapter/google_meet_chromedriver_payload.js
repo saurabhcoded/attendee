@@ -1228,7 +1228,7 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
           videoElement.play();
           
           // Capture both audio and video simultaneously from the video element
-          const combinedStream = videoElement.captureStream();
+          const combinedStream = videoElement.captureStream(30);
           
           // If audio is requested, add audio track from the combined stream
           if (constraints.audio && combinedStream.getAudioTracks().length > 0) {
