@@ -9,9 +9,12 @@ class FullCaptureManager {
         this.recordedChunks = [];
         this.audioContext = null;
         this.observer = null;
+        this.startedAt = null;
     }
     
     async start() {
+        this.startedAt = performance.now();
+
         // Find the main element
         const mainElement = document.querySelector('main');
         if (!mainElement) {
@@ -19,12 +22,16 @@ class FullCaptureManager {
             return;
         }
 
+        //flush the video bytes
+        //make canvas dixed 1920x1080. scale video elements to fit
+        //make captions line up
+
         //document.querySelectorAll('body *').forEach(el => el.tagName !== 'VIDEO' && !el.querySelector('video') ? el.style.display = 'none' : '');
 
         // Create a canvas element with initial dimensions (will be updated later)
         const canvas = document.createElement('canvas');
-        canvas.width = 1280;  // Default width, will be updated
-        canvas.height = 720;  // Default height, will be updated
+        canvas.width = 1920;  // Default width, will be updated
+        canvas.height = 1080;  // Default height, will be updated
         document.body.appendChild(canvas);
         
         // Find all video elements within the main element
@@ -50,7 +57,11 @@ class FullCaptureManager {
         });
         
         // Create a drawing function that runs at 30fps
-        const drawVideosToCanvas = () => {
+        const drawVideosToCanvas = () => {            
+            // Clear the canvas with black background
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
             // Calculate the bounding box that encompasses all videos
             let minX = Infinity;
             let minY = Infinity;
@@ -70,34 +81,54 @@ class FullCaptureManager {
                 }
             });
             
-            // If we have active videos, update canvas size to fit them
+            // If we have active videos, draw them maintaining aspect ratio
             if (activeVideos.length > 0) {
-                const width = maxX - minX;
-                const height = maxY - minY;
+                const boundingWidth = maxX - minX;
+                const boundingHeight = maxY - minY;
                 
-                // Only resize canvas if dimensions have changed
-                if (canvas.width !== width || canvas.height !== height) {
-                    canvas.width = width;
-                    canvas.height = height;
-                    console.log(`Resized canvas to ${width}x${height}`);
+                // Calculate aspect ratios
+                const inputAspect = boundingWidth / boundingHeight;
+                const outputAspect = canvas.width / canvas.height; // 16:9 for 1920x1080
+                
+                let scaledWidth, scaledHeight, offsetX, offsetY;
+                
+                if (Math.abs(inputAspect - outputAspect) < 1e-2) {
+                    // Same aspect ratio, use full canvas
+                    scaledWidth = canvas.width;
+                    scaledHeight = canvas.height;
+                    offsetX = 0;
+                    offsetY = 0;
+                } else if (inputAspect > outputAspect) {
+                    // Input is wider, fit to width with letterboxing
+                    scaledWidth = canvas.width;
+                    scaledHeight = canvas.width / inputAspect;
+                    offsetX = 0;
+                    offsetY = (canvas.height - scaledHeight) / 2;
+                } else {
+                    // Input is taller, fit to height with pillarboxing
+                    scaledHeight = canvas.height;
+                    scaledWidth = canvas.height * inputAspect;
+                    offsetX = (canvas.width - scaledWidth) / 2;
+                    offsetY = 0;
                 }
                 
-                // Clear the canvas
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                
-                // Draw each video at its position relative to our bounding box
+                // Draw each video at its position relative to our bounding box, scaled to fit
                 activeVideos.forEach(({ video, rect }) => {
+                    // Calculate relative position within the bounding box
+                    const relativeX = (rect.left - minX) / boundingWidth;
+                    const relativeY = (rect.top - minY) / boundingHeight;
+                    const relativeWidth = rect.width / boundingWidth;
+                    const relativeHeight = rect.height / boundingHeight;
+                    
+                    // Apply scaling and position on canvas
                     ctx.drawImage(
                         video,
-                        rect.left - minX,  // Adjust X position relative to bounding box
-                        rect.top - minY,   // Adjust Y position relative to bounding box
-                        rect.width,
-                        rect.height
+                        offsetX + relativeX * scaledWidth,
+                        offsetY + relativeY * scaledHeight,
+                        relativeWidth * scaledWidth,
+                        relativeHeight * scaledHeight
                     );
                 });
-            } else {
-                // If no active videos, just clear the canvas
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
             }
             
             // Schedule the next frame
