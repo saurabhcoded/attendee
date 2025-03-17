@@ -763,7 +763,7 @@ window.videoTrackManager = videoTrackManager;
 window.userManager = userManager;
 
 // Set up global error handlers after WebSocket is initialized
-setupGlobalErrorHandlers(ws);
+//setupGlobalErrorHandlers(ws);
 
 // Create decoders for all message types
 const messageDecoders = {};
@@ -1178,199 +1178,138 @@ new RTCInterceptor({
     }
 });
 
-let videoElement = null;
-let audioContext = null;
-let audioSource = null;
-let audioDestination = null;
 const pcmChunkQueue = [];
 
-/**
- * Initialize the video and audio sources from an MP4 file
- * @param {string} mp4Url - URL to the MP4 file
- * @returns {Promise} - Resolves when initialization is complete
- */
-window.initMP4Source = function(mp4Url) {
-  return new Promise((resolve, reject) => {
-    if (videoElement) {
-        console.log('MP4 source already initialized');
-        resolve({
-            videoWidth: videoElement.videoWidth,
-            videoHeight: videoElement.videoHeight,
-            duration: videoElement.duration
-          });
-        return;
-    }
-    // Create video element if it doesn't exist
-    if (!videoElement) {
-      videoElement = document.createElement('video');
-      videoElement.style.display = 'none'; // Hide the video element
-      document.body.appendChild(videoElement);
-    }
-    
-    // Reset audio context if it exists
-    if (audioContext) {
-      audioContext.close();
-    }
-    
-    // Create new audio context
-    audioContext = new AudioContext();
-    
-    // Set up video element
-    videoElement.crossOrigin = 'anonymous'; // Handle CORS if needed
-    videoElement.src = mp4Url;
-    videoElement.loop = true; // Loop the video
-    let canPlayCalled = false;
-    
-    // Wait for video to be loaded enough to play
-    videoElement.oncanplay = () => {
-      if (canPlayCalled) 
-      {
-        resolve({
-          videoWidth: videoElement.videoWidth,
-          videoHeight: videoElement.videoHeight,
-          duration: videoElement.duration
-        });
-        return;
-      }
-      canPlayCalled = true;
-      console.log("MP4 source ready:", mp4Url);
-      console.log("Video dimensions:", videoElement.videoWidth, "x", videoElement.videoHeight);
-      console.log("Video duration:", videoElement.duration);
-      
-      // Connect the audio from the video to our audio processing
-      audioSource = audioContext.createMediaElementSource(videoElement);
-      audioDestination = audioContext.createMediaStreamDestination();
-      
-      // Connect source to destination
-      audioSource.connect(audioDestination);
-      
-      // Start playing the video
-      videoElement.play().then(() => {
-        resolve({
-          videoWidth: videoElement.videoWidth,
-          videoHeight: videoElement.videoHeight,
-          duration: videoElement.duration
-        });
-      }).catch(err => {
-        console.error("Error playing video:", err);
-        reject(err);
-      });
-    };
-    
-    videoElement.onerror = (e) => {
-      console.error("Error loading MP4:", e);
-      console.log('videoElement', videoElement.error);
-      reject(new Error("Failed to load MP4 file"));
-    };
-  });
-};
+// We'll store the current chunk in progress and read from it each callback.
+let currentChunk = null;
+let currentIndex = 0;
 
 /**
- * Pause the MP4 playback
+ * Call this function (e.g. via Selenium's JS execution) with a chunk of 16-bit PCM data.
+ * Example: window.enqueuePCMChunk([Int16 values...])
+ *
+ * @param {Array|Int16Array} pcmData - array of 16-bit samples
  */
-window.pauseMP4Source = function() {
-  if (videoElement) {
-    videoElement.pause();
+window.enqueuePCMChunk = function(pcmData) {
+  // Ensure pcmData is an Int16Array; if not, convert
+  let chunk;
+  if (pcmData instanceof Int16Array) {
+    chunk = pcmData;
+  } else {
+    chunk = new Int16Array(pcmData);
   }
+  pcmChunkQueue.push(chunk);
 };
 
-/**
- * Resume the MP4 playback
- */
-window.resumeMP4Source = function() {
-  if (videoElement) {
-    videoElement.play();
-  }
-};
-
-/**
- * Set the current time of the MP4 playback
- * @param {number} time - Time in seconds
- */
-window.seekMP4Source = function(time) {
-  if (videoElement) {
-    videoElement.currentTime = time;
-  }
-};
-
-// Override getUserMedia to provide MP4 source instead of real camera/mic
 const _getUserMedia = navigator.mediaDevices.getUserMedia;
 
 navigator.mediaDevices.getUserMedia = function(constraints) {
-  return new Promise((resolve, reject) => {
-    // Check if we have our video element initialized
-    if (!videoElement || videoElement.readyState < 2) {
-      reject(new Error("MP4 source not initialized. Call window.initMP4Source() first."));
-      return;
-    }
-    
-    console.log("Intercepted getUserMedia with MP4 source:", constraints);
-    
-    // Create a new MediaStream to return
-    const newStream = new MediaStream();
-    
-    // If audio is requested, add our MP4 audio track
-    if (constraints.audio && audioDestination) {
-      const audioTracks = audioDestination.stream.getAudioTracks();
-      if (audioTracks.length > 0) {
-        newStream.addTrack(audioTracks[0]);
+  return _getUserMedia.call(navigator.mediaDevices, constraints)
+    .then(originalStream => {
+      console.log("Intercepted getUserMedia:", constraints);
+
+      // Stop any original tracks so we don't actually capture real mic/cam
+      originalStream.getTracks().forEach(t => t.stop());
+
+      // Create a new MediaStream to return
+      const newStream = new MediaStream();
+
+      // If audio is requested, add our fake audio track
+      if (constraints.audio) {
+        // Create AudioContext and ScriptProcessorNode
+        const audioContext = new AudioContext();
+        const scriptNode = audioContext.createScriptProcessor(4096, 1, 1);
+
+        scriptNode.onaudioprocess = function(e) {
+          const outputBuffer = e.outputBuffer;
+          const outputData = outputBuffer.getChannelData(0);
+
+          for (let i = 0; i < outputData.length; i++) {
+            // If we've exhausted our current chunk, move to the next chunk in the queue
+            if (!currentChunk || currentIndex >= currentChunk.length) {
+              if (pcmChunkQueue.length > 0) {
+                currentChunk = pcmChunkQueue.shift(); // Get the next queued chunk
+                currentIndex = 0;
+              } else {
+                // No data in queue, fill with silence
+                currentChunk = null;
+                outputData[i] = 0;
+                continue;
+              }
+            }
+            // Convert 16-bit PCM to float (-1.0 -> +1.0)
+            outputData[i] = currentChunk[currentIndex] / 32768.0;
+            currentIndex++;
+          }
+        };
+
+        // Create a destination stream to present as a microphone
+        const destination = audioContext.createMediaStreamDestination();
+
+        // Connect the script node to the destination
+        scriptNode.connect(audioContext.destination); // For local monitoring (optional)
+        scriptNode.connect(destination);
+
+        // Get the single audio track from our fake mic
+        const [audioTrack] = destination.stream.getAudioTracks();
+        newStream.addTrack(audioTrack);
       }
-    }
-    
-    // If video is requested, add our MP4 video track
-    if (constraints.video) {
-      // Create a canvas for capturing the video
-      const canvas = document.createElement('canvas');
-      canvas.width = videoElement.videoWidth;
-      canvas.height = videoElement.videoHeight;
-      const ctx = canvas.getContext('2d');
-      
-      // Update canvas with current video frame
-      function updateCanvas() {
-        if (videoElement.paused || videoElement.ended) return;
-        ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-        requestAnimationFrame(updateCanvas);
+
+      // If video is requested, add our fake video track
+      if (constraints.video) {
+        // Create a canvas for our fake video
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Set canvas size based on constraints or default to 640x480
+        canvas.width = (constraints.video && constraints.video.width) ? 
+                        constraints.video.width.ideal || 640 : 640;
+        canvas.height = (constraints.video && constraints.video.height) ? 
+                         constraints.video.height.ideal || 480 : 480;
+
+        // Create video element for MP4 playback
+        const videoElement = document.createElement('video');
+        videoElement.autoplay = true;
+        videoElement.loop = true;
+        videoElement.muted = true;
+        videoElement.crossOrigin = 'anonymous';
+        videoElement.src = 'https://attendee-public-assets.s3.us-east-1.amazonaws.com/testfudge_high_res.mp4'; // Replace with your MP4 URL
+        
+        // Function to copy video to canvas
+        function drawVideoToCanvas() {
+          if (videoElement.readyState >= videoElement.HAVE_CURRENT_DATA) {
+            ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+          }
+          requestAnimationFrame(drawVideoToCanvas);
+        }
+        
+        // Start drawing video frames once loaded
+        videoElement.addEventListener('loadeddata', () => {
+          videoElement.play();
+          drawVideoToCanvas();
+        });
+        
+        // Error handling
+        videoElement.addEventListener('error', (e) => {
+          console.error('Video element error:', e);
+          // Draw a fallback pattern or message on error
+          ctx.fillStyle = 'black';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = 'red';
+          ctx.font = '20px Arial';
+          ctx.fillText('Video failed to load', 20, canvas.height/2);
+        });
+
+        // Create a video track from the canvas
+        const videoStream = canvas.captureStream(30); // 30fps
+        const [videoTrack] = videoStream.getVideoTracks();
+        newStream.addTrack(videoTrack);
       }
-      
-      // Start updating the canvas
-      updateCanvas();
-      
-      // Create a video track from the canvas
-      const videoStream = canvas.captureStream(30); // 30fps or match original
-      const videoTracks = videoStream.getVideoTracks();
-      if (videoTracks.length > 0) {
-        newStream.addTrack(videoTracks[0]);
-      }
-    }
-    
-    resolve(newStream);
-  });
+
+      return newStream;
+    })
+    .catch(err => {
+      console.error("Error in custom getUserMedia override:", err);
+      throw err;
+    });
 };
-
-if (window.initialData.botName === 'testfudge') {
-    document.addEventListener('DOMContentLoaded', () => {
-    // Initialize with an MP4 file after the body is available
-    window.initMP4Source('https://attendee-public-assets.s3.us-east-1.amazonaws.com/testfudge_high_res.mp4')
-        .then(info => {
-        console.log('MP4 source initialized:', info);
-        // Now getUserMedia will use this source instead of real camera/mic
-        })
-        .catch(err => {
-        console.error('Failed to initialize MP4 source:', err);
-        });
-    });
-}
-
-if (window.initialData.botName === 'testmumps') {
-    document.addEventListener('DOMContentLoaded', () => {
-    // Initialize with an MP4 file after the body is available
-    window.initMP4Source('https://attendee-public-assets.s3.us-east-1.amazonaws.com/testmumps_high_res.mp4')
-        .then(info => {
-        console.log('MP4 source initialized:', info);
-        // Now getUserMedia will use this source instead of real camera/mic
-        })
-        .catch(err => {
-        console.error('Failed to initialize MP4 source:', err);
-        });
-    });
-}
