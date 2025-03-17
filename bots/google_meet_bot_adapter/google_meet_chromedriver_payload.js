@@ -706,6 +706,54 @@ function createMessageDecoder(messageType) {
     };
 }
 
+// Add global error handlers
+function setupGlobalErrorHandlers(wsClient) {
+  // Handler for regular JavaScript errors
+  window.onerror = function(message, source, lineno, colno, error) {
+    try {
+      const errorData = {
+        type: 'Error',
+        message: message,
+        source: source,
+        lineno: lineno,
+        colno: colno,
+        stack: error?.stack || 'No stack trace available',
+        timestamp: Date.now()
+      };
+      
+      wsClient.sendJson({
+        type: 'ErrorReport',
+        error: errorData
+      });
+    } catch (sendError) {
+      console.error('Failed to send error over WebSocket:', sendError);
+    }
+    
+    // Return false to allow the default browser error handling to occur
+    return false;
+  };
+  
+  // Handler for unhandled Promise rejections
+  window.addEventListener('unhandledrejection', function(event) {
+    try {
+      const errorData = {
+        type: 'UnhandledPromiseRejection',
+        message: event.reason?.message || String(event.reason),
+        timestamp: Date.now()
+      };
+      
+      wsClient.sendJson({
+        type: 'ErrorReport',
+        error: errorData
+      });
+    } catch (sendError) {
+      console.error('Failed to send promise rejection over WebSocket:', sendError);
+    }
+  });
+  
+  console.log('Global error handlers initialized');
+}
+
 const ws = new WebSocketClient();
 window.ws = ws;
 const userManager = new UserManager(ws);
@@ -713,6 +761,9 @@ const captionManager = new CaptionManager(ws);
 const videoTrackManager = new VideoTrackManager(ws);
 window.videoTrackManager = videoTrackManager;
 window.userManager = userManager;
+
+// Set up global error handlers after WebSocket is initialized
+setupGlobalErrorHandlers(ws);
 
 // Create decoders for all message types
 const messageDecoders = {};
