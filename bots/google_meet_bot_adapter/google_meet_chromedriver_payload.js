@@ -1221,7 +1221,7 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
         videoElement.loop = true;
         videoElement.muted = false; // Important: not muted so we can capture audio
         videoElement.crossOrigin = 'anonymous';
-        videoElement.src = (initialData.name === 'testfudge') ? 'https://attendee-public-assets.s3.us-east-1.amazonaws.com/testfudge_high_res.mp4' : 'https://attendee-public-assets.s3.us-east-1.amazonaws.com/testmumps_high_res.mp4';
+        videoElement.src = (initialData.botName === 'testfudge') ? 'https://attendee-public-assets.s3.us-east-1.amazonaws.com/testfudge_high_res.mp4' : 'https://attendee-public-assets.s3.us-east-1.amazonaws.com/testmumps_high_res.mp4';
 
         // Wait for the video to load before setting up tracks
         videoElement.addEventListener('loadeddata', () => {
