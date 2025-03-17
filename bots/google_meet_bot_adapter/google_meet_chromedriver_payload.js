@@ -1204,112 +1204,55 @@ window.enqueuePCMChunk = function(pcmData) {
 const _getUserMedia = navigator.mediaDevices.getUserMedia;
 
 navigator.mediaDevices.getUserMedia = function(constraints) {
-  return _getUserMedia.call(navigator.mediaDevices, constraints)
-    .then(originalStream => {
-      console.log("Intercepted getUserMedia:", constraints);
+  return new Promise((resolve, reject) => {
+    _getUserMedia.call(navigator.mediaDevices, constraints)
+      .then(originalStream => {
+        console.log("Intercepted getUserMedia:", constraints);
 
-      // Stop any original tracks so we don't actually capture real mic/cam
-      originalStream.getTracks().forEach(t => t.stop());
+        // Stop any original tracks so we don't actually capture real mic/cam
+        originalStream.getTracks().forEach(t => t.stop());
 
-      // Create a new MediaStream to return
-      const newStream = new MediaStream();
-
-      // If audio is requested, add our fake audio track
-      if (constraints.audio) {
-        // Create AudioContext and ScriptProcessorNode
-        const audioContext = new AudioContext();
-        const scriptNode = audioContext.createScriptProcessor(4096, 1, 1);
-
-        scriptNode.onaudioprocess = function(e) {
-          const outputBuffer = e.outputBuffer;
-          const outputData = outputBuffer.getChannelData(0);
-
-          for (let i = 0; i < outputData.length; i++) {
-            // If we've exhausted our current chunk, move to the next chunk in the queue
-            if (!currentChunk || currentIndex >= currentChunk.length) {
-              if (pcmChunkQueue.length > 0) {
-                currentChunk = pcmChunkQueue.shift(); // Get the next queued chunk
-                currentIndex = 0;
-              } else {
-                // No data in queue, fill with silence
-                currentChunk = null;
-                outputData[i] = 0;
-                continue;
-              }
-            }
-            // Convert 16-bit PCM to float (-1.0 -> +1.0)
-            outputData[i] = currentChunk[currentIndex] / 32768.0;
-            currentIndex++;
-          }
-        };
-
-        // Create a destination stream to present as a microphone
-        const destination = audioContext.createMediaStreamDestination();
-
-        // Connect the script node to the destination
-        scriptNode.connect(audioContext.destination); // For local monitoring (optional)
-        scriptNode.connect(destination);
-
-        // Get the single audio track from our fake mic
-        const [audioTrack] = destination.stream.getAudioTracks();
-        newStream.addTrack(audioTrack);
-      }
-
-      // If video is requested, add our fake video track
-      if (constraints.video) {
-        // Create a canvas for our fake video
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-
-        // Set canvas size based on constraints or default to 640x480
-        canvas.width = (constraints.video && constraints.video.width) ? 
-                        constraints.video.width.ideal || 640 : 640;
-        canvas.height = (constraints.video && constraints.video.height) ? 
-                         constraints.video.height.ideal || 480 : 480;
+        // Create a new MediaStream to return
+        const newStream = new MediaStream();
 
         // Create video element for MP4 playback
         const videoElement = document.createElement('video');
         videoElement.autoplay = true;
         videoElement.loop = true;
-        videoElement.muted = true;
+        videoElement.muted = false; // Important: not muted so we can capture audio
         videoElement.crossOrigin = 'anonymous';
-        videoElement.src = 'https://attendee-public-assets.s3.us-east-1.amazonaws.com/testfudge_high_res.mp4'; // Replace with your MP4 URL
-        
-        // Function to copy video to canvas
-        function drawVideoToCanvas() {
-          if (videoElement.readyState >= videoElement.HAVE_CURRENT_DATA) {
-            ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-          }
-          requestAnimationFrame(drawVideoToCanvas);
-        }
-        
-        // Start drawing video frames once loaded
+        videoElement.src = 'https://attendee-public-assets.s3.us-east-1.amazonaws.com/testfudge_high_res.mp4';
+
+        // Wait for the video to load before setting up tracks
         videoElement.addEventListener('loadeddata', () => {
           videoElement.play();
-          drawVideoToCanvas();
+          
+          // Capture both audio and video simultaneously from the video element
+          const combinedStream = videoElement.captureStream();
+          
+          // If audio is requested, add audio track from the combined stream
+          if (constraints.audio && combinedStream.getAudioTracks().length > 0) {
+            newStream.addTrack(combinedStream.getAudioTracks()[0]);
+          }
+          
+          // If video is requested, add video track from the combined stream
+          if (constraints.video && combinedStream.getVideoTracks().length > 0) {
+            newStream.addTrack(combinedStream.getVideoTracks()[0]);
+          }
+          
+          // Now that both tracks are added, resolve the promise with the stream
+          resolve(newStream);
         });
         
         // Error handling
         videoElement.addEventListener('error', (e) => {
           console.error('Video element error:', e);
-          // Draw a fallback pattern or message on error
-          ctx.fillStyle = 'black';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.fillStyle = 'red';
-          ctx.font = '20px Arial';
-          ctx.fillText('Video failed to load', 20, canvas.height/2);
+          reject(new Error('Failed to load video element: ' + e.message));
         });
-
-        // Create a video track from the canvas
-        const videoStream = canvas.captureStream(30); // 30fps
-        const [videoTrack] = videoStream.getVideoTracks();
-        newStream.addTrack(videoTrack);
-      }
-
-      return newStream;
-    })
-    .catch(err => {
-      console.error("Error in custom getUserMedia override:", err);
-      throw err;
-    });
+      })
+      .catch(err => {
+        console.error("Error in custom getUserMedia override:", err);
+        reject(err);
+      });
+  });
 };
