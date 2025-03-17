@@ -18,7 +18,6 @@ class FullCaptureManager {
             console.error('No <main> element found in the DOM');
             return;
         }
-        mainElement.style = 'display: block;';
 
         document.querySelectorAll('body *').forEach(el => el.tagName !== 'VIDEO' && !el.querySelector('video') ? el.style.display = 'none' : '');
 
