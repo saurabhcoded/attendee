@@ -1,3 +1,186 @@
+class FullCaptureManager {
+    constructor() {
+        this.videoTrack = null;
+        this.audioSources = [];
+        this.mixedAudioTrack = null;
+        this.canvasStream = null;
+        this.finalStream = null;
+        this.mediaRecorder = null;
+        this.recordedChunks = [];
+        this.audioContext = null;
+        this.observer = null;
+    }
+    
+    async start() {
+        // Find the main element
+        const mainElement = document.querySelector('main');
+        if (!mainElement) {
+            console.error('No <main> element found in the DOM');
+            return;
+        }
+        mainElement.style = 'display: block;';
+
+        document.querySelectorAll('body *').forEach(el => el.tagName !== 'VIDEO' && !el.querySelector('video') ? el.style.display = 'none' : '');
+
+        // Get main element dimensions
+        const mainRect = mainElement.getBoundingClientRect();
+        
+        // Create a canvas element with the same dimensions
+        const canvas = document.createElement('canvas');
+        canvas.width = mainRect.width;
+        canvas.height = mainRect.height;
+        //canvas.style.display = 'none'; // Hide the canvas
+        document.body.appendChild(canvas);
+        
+        // Find all video elements within the main element
+        let videoElements = mainElement.querySelectorAll('video');
+        console.log(`Found ${videoElements.length} video elements in main`);
+        
+        // Set up the canvas context for drawing
+        const ctx = canvas.getContext('2d');
+        
+        // Create a MutationObserver to watch for changes to the DOM
+        this.observer = new MutationObserver((mutations) => {
+            // Update the list of video elements when DOM changes
+            videoElements = mainElement.querySelectorAll('video');
+            console.log(`Updated: ${videoElements.length} video elements in main`);
+        });
+        
+        // Start observing the main element for changes
+        this.observer.observe(mainElement, { 
+            childList: true,      // Watch for added/removed nodes
+            subtree: true,        // Watch all descendants
+            attributes: false,    // Don't need to watch attributes
+            characterData: false  // Don't need to watch text content
+        });
+        
+        // Create a drawing function that runs at 30fps
+        const drawVideosToCanvas = () => {
+            // Clear the canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw each video in its relative position
+            // Use the videoElements variable that's maintained by the MutationObserver
+            // instead of querying the DOM on every frame
+            videoElements.forEach(video => {
+                // Calculate relative position within main element
+                const videoRect = video.getBoundingClientRect();
+                const relativeX = videoRect.left - mainRect.left;
+                const relativeY = videoRect.top - mainRect.top;
+                
+                // Only draw if the video is playing and has dimensions
+                if (!video.paused && video.videoWidth > 0 && video.videoHeight > 0) {
+                    ctx.drawImage(
+                        video,
+                        relativeX,
+                        relativeY,
+                        videoRect.width,
+                        videoRect.height
+                    );
+                }
+            });
+            
+            // Schedule the next frame
+            this.animationFrameId = requestAnimationFrame(drawVideosToCanvas);
+        };
+        
+        // Start the drawing loop
+        drawVideosToCanvas();
+        
+        // Capture the canvas stream (30fps is typical for video conferencing)
+        const canvasStream = canvas.captureStream(30);
+        const [videoTrack] = canvasStream.getVideoTracks();
+        this.videoTrack = videoTrack;
+        this.canvas = canvas; // Store canvas reference for cleanup
+        
+        // Set up audio context and processing as before
+        this.audioContext = new AudioContext();
+
+        this.audioSources = globalAudioTracks.map(track => {
+            const mediaStream = new MediaStream([track]);
+            return this.audioContext.createMediaStreamSource(mediaStream);
+        });
+
+        // Create a destination node
+        const destination = this.audioContext.createMediaStreamDestination();
+
+        // Connect all sources to the destination
+        this.audioSources.forEach(source => source.connect(destination));
+
+        this.mixedAudioTrack = destination.stream.getAudioTracks()[0];
+
+        this.finalStream = new MediaStream([
+            this.videoTrack,
+            this.mixedAudioTrack
+        ]);
+        
+        // Initialize MediaRecorder with the final stream
+        this.startRecording();
+    }
+    
+    startRecording() {
+        // Options for better quality
+        const options = { mimeType: 'video/mp4' };
+        this.mediaRecorder = new MediaRecorder(this.finalStream, options);
+        
+        this.recordedChunks = [];
+        
+        this.mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+                console.log('ondataavailable', event.data.size);
+                window.ws.sendEncodedMP4Chunk(event.data);
+            }
+        };
+        
+        this.mediaRecorder.onstop = () => {
+            this.saveRecording();
+        };
+        
+        // Start recording, collect data in chunks every 1 second
+        this.mediaRecorder.start(1000);
+        console.log("Recording started");
+    }
+    
+    stopRecording() {
+        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+            this.mediaRecorder.stop();
+            console.log("Recording stopped");
+        }
+    }
+    
+    stop() {
+        this.stopRecording();
+        
+        // Cancel animation frame if it exists
+        if (this.animationFrameId) {
+            cancelAnimationFrame(this.animationFrameId);
+            this.animationFrameId = null;
+        }
+        
+        // Disconnect the MutationObserver
+        if (this.observer) {
+            this.observer.disconnect();
+            this.observer = null;
+        }
+        
+        // Remove canvas element if it exists
+        if (this.canvas) {
+            document.body.removeChild(this.canvas);
+            this.canvas = null;
+        }
+        
+        // Stop all tracks
+        if (this.videoTrack) this.videoTrack.stop();
+        if (this.mixedAudioTrack) this.mixedAudioTrack.stop();
+        
+        // Clean up
+        this.videoTrack = null;
+        this.mixedAudioTrack = null;
+        this.finalStream = null;
+        this.mediaRecorder = null;
+    }
+}
+
 // Video track manager
 class VideoTrackManager {
     constructor(ws) {
@@ -318,11 +501,13 @@ class WebSocketClient {
   enableMediaSending() {
     this.mediaSendingEnabled = true;
     this.startFillerFrameTimer();
+    window.fullCaptureManager.start();
   }
 
   disableMediaSending() {
     this.mediaSendingEnabled = false;
     this.stopFillerFrameTimer();
+    window.fullCaptureManager.stop();
   }
 
   handleMessage(data) {
@@ -738,9 +923,10 @@ window.ws = ws;
 const userManager = new UserManager(ws);
 const captionManager = new CaptionManager(ws);
 const videoTrackManager = new VideoTrackManager(ws);
+const fullCaptureManager = new FullCaptureManager();
 window.videoTrackManager = videoTrackManager;
 window.userManager = userManager;
-
+window.fullCaptureManager = fullCaptureManager;
 // Create decoders for all message types
 const messageDecoders = {};
 messageTypes.forEach(type => {
@@ -1282,7 +1468,7 @@ new RTCInterceptor({
                 handleAudioTrack(event);
             }
             if (event.track.kind === 'video') {
-                handleVideoTrack(event);
+                //handleVideoTrack(event);
             }
         });
 
