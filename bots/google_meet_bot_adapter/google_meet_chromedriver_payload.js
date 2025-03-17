@@ -817,7 +817,7 @@ const handleCollectionEvent = (event) => {
   //console.log('deviceOutputInfoList', JSON.stringify(collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper?.deviceInfoWrapper?.deviceOutputInfoList));
   //console.log('usermap', userMap.allUsersMap);
   //console.log('userInfoList And Event', collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper.userInfoListWrapperAndChatWrapper.userInfoListWrapper);
-  const userInfoList = collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper.userInfoListWrapperAndChatWrapper.userInfoListWrapper?.userInfoList || [];
+  const userInfoList = collectionEvent.body.userInfoListWrapperAndChatWrapperWrapper.userInfoListWrapperAndChatWrapper?.userInfoListWrapper?.userInfoList || [];
   console.log('userInfoList in collection event', userInfoList);
   // This event is triggered when a single user joins (or leaves) the meeting
   // generally this array only contains a single user
@@ -1191,6 +1191,15 @@ const pcmChunkQueue = [];
  */
 window.initMP4Source = function(mp4Url) {
   return new Promise((resolve, reject) => {
+    if (videoElement) {
+        console.log('MP4 source already initialized');
+        resolve({
+            videoWidth: videoElement.videoWidth,
+            videoHeight: videoElement.videoHeight,
+            duration: videoElement.duration
+          });
+        return;
+    }
     // Create video element if it doesn't exist
     if (!videoElement) {
       videoElement = document.createElement('video');
