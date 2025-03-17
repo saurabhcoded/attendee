@@ -21,14 +21,10 @@ class FullCaptureManager {
 
         //document.querySelectorAll('body *').forEach(el => el.tagName !== 'VIDEO' && !el.querySelector('video') ? el.style.display = 'none' : '');
 
-        // Get main element dimensions
-        const mainRect = mainElement.getBoundingClientRect();
-        
-        // Create a canvas element with the same dimensions
+        // Create a canvas element with initial dimensions (will be updated later)
         const canvas = document.createElement('canvas');
-        canvas.width = mainRect.width;
-        canvas.height = mainRect.height;
-        //canvas.style.display = 'none'; // Hide the canvas
+        canvas.width = 1280;  // Default width, will be updated
+        canvas.height = 720;  // Default height, will be updated
         document.body.appendChild(canvas);
         
         // Find all video elements within the main element
@@ -55,29 +51,54 @@ class FullCaptureManager {
         
         // Create a drawing function that runs at 30fps
         const drawVideosToCanvas = () => {
-            // Clear the canvas
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            // Calculate the bounding box that encompasses all videos
+            let minX = Infinity;
+            let minY = Infinity;
+            let maxX = 0;
+            let maxY = 0;
+            let activeVideos = [];
             
-            // Draw each video in its relative position
-            // Use the videoElements variable that's maintained by the MutationObserver
-            // instead of querying the DOM on every frame
+            // Find active videos and determine the bounding box
             videoElements.forEach(video => {
-                // Calculate relative position within main element
-                const videoRect = video.getBoundingClientRect();
-                const relativeX = videoRect.left - mainRect.left;
-                const relativeY = videoRect.top - mainRect.top;
-                
-                // Only draw if the video is playing and has dimensions
                 if (!video.paused && video.videoWidth > 0 && video.videoHeight > 0) {
-                    ctx.drawImage(
-                        video,
-                        relativeX,
-                        relativeY,
-                        videoRect.width,
-                        videoRect.height
-                    );
+                    const videoRect = video.getBoundingClientRect();
+                    minX = Math.min(minX, videoRect.left);
+                    minY = Math.min(minY, videoRect.top);
+                    maxX = Math.max(maxX, videoRect.right);
+                    maxY = Math.max(maxY, videoRect.bottom);
+                    activeVideos.push({ video, rect: videoRect });
                 }
             });
+            
+            // If we have active videos, update canvas size to fit them
+            if (activeVideos.length > 0) {
+                const width = maxX - minX;
+                const height = maxY - minY;
+                
+                // Only resize canvas if dimensions have changed
+                if (canvas.width !== width || canvas.height !== height) {
+                    canvas.width = width;
+                    canvas.height = height;
+                    console.log(`Resized canvas to ${width}x${height}`);
+                }
+                
+                // Clear the canvas
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                // Draw each video at its position relative to our bounding box
+                activeVideos.forEach(({ video, rect }) => {
+                    ctx.drawImage(
+                        video,
+                        rect.left - minX,  // Adjust X position relative to bounding box
+                        rect.top - minY,   // Adjust Y position relative to bounding box
+                        rect.width,
+                        rect.height
+                    );
+                });
+            } else {
+                // If no active videos, just clear the canvas
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
             
             // Schedule the next frame
             this.animationFrameId = requestAnimationFrame(drawVideosToCanvas);
