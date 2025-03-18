@@ -1,6 +1,11 @@
 {
   "subdomain": "attendee",
-  "guides": [],
+  "guides": [
+    {
+      "name": "How To Guide",
+      "path": "docs/how-to.md"
+    }
+  ],
   "references": [
     {
       "name": "API Reference",
