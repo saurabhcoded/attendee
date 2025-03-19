@@ -61,7 +61,7 @@ class BotController:
             add_mixed_audio_chunk_callback=None,
             upsert_caption_callback=self.closed_caption_manager.upsert_caption,
             automatic_leave_configuration=self.automatic_leave_configuration,
-            add_encoded_mp4_chunk_callback=self.media_recorder_receiver.on_encoded_mp4_chunk,
+            add_encoded_mp4_chunk_callback=self.media_recorder_receiver.on_encoded_mp4_chunk if self.media_recorder_receiver else self.rtmp_client.write_data,
         )
 
     def get_teams_bot_adapter(self):
@@ -283,7 +283,16 @@ class BotController:
             return True
 
     def should_create_media_recorder_receiver(self):
-        return not self.should_create_gstreamer_pipeline()
+        meeting_type = self.get_meeting_type()
+        if meeting_type == MeetingTypes.ZOOM:
+            return False
+        elif meeting_type == MeetingTypes.GOOGLE_MEET:
+            return not self.should_create_rtmp_client()
+        elif meeting_type == MeetingTypes.TEAMS:
+            return False
+
+    def should_create_rtmp_client(self):
+        return self.pipeline_configuration.rtmp_stream_audio or self.pipeline_configuration.rtmp_stream_video
 
     def run(self):
         if self.run_called:
@@ -310,7 +319,7 @@ class BotController:
         )
 
         self.rtmp_client = None
-        if self.pipeline_configuration.rtmp_stream_audio or self.pipeline_configuration.rtmp_stream_video:
+        if self.should_create_rtmp_client():
             self.rtmp_client = RTMPClient(rtmp_url=self.bot_in_db.rtmp_destination_url())
             self.rtmp_client.start()
 

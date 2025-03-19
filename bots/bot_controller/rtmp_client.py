@@ -21,12 +21,12 @@ class RTMPClient:
         if self.is_running:
             return False
 
-        # Configure FFmpeg command to copy the FLV stream directly
+        # Configure FFmpeg command to copy the WebM stream directly
         ffmpeg_cmd = [
             "ffmpeg",
             "-y",  # Overwrite output if needed
             "-f",
-            "flv",  # Input format is FLV
+            "webm",  # Input format is WebM
             "-i",
             "pipe:0",  # Read from stdin
             "-c",
