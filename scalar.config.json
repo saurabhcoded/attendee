@@ -2,6 +2,15 @@
   "subdomain": "attendee",
   "guides": [
     {
+      "name": "Basics",
+      "sidebar": [
+        {
+          "path": "docs/basics.md",
+          "type": "page"
+        }
+      ]
+    },
+{
       "name": "How To Guide",
       "path": "docs/how-to.md"
     }
