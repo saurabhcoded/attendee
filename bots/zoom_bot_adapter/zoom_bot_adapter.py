@@ -22,6 +22,114 @@ from bots.bot_controller.automatic_leave_configuration import AutomaticLeaveConf
 
 logger = logging.getLogger(__name__)
 
+def half_ceil(x):
+    return (x + 1) // 2
+
+def scale_i420(frame, frame_size, new_size):
+    """
+    Scales an I420 (YUV 4:2:0) frame from 'frame_size' to 'new_size',
+    handling odd frame widths/heights by using 'ceil' in the chroma planes.
+
+    :param frame:      A bytes object containing the raw I420 frame data.
+    :param frame_size: (orig_width, orig_height)
+    :param new_size:   (new_width, new_height)
+    :return:           A bytes object with the scaled I420 frame.
+    """
+
+    # 1) Unpack source / destination dimensions
+    orig_width, orig_height = frame_size
+    new_width, new_height = new_size
+
+    # 2) Compute source plane sizes with rounding up for chroma
+    orig_chroma_width = half_ceil(orig_width)
+    orig_chroma_height = half_ceil(orig_height)
+
+    y_plane_size = orig_width * orig_height
+    uv_plane_size = orig_chroma_width * orig_chroma_height  # for each U or V
+
+    # 3) Extract Y, U, V planes from the byte array
+    y = np.frombuffer(frame[0:y_plane_size], dtype=np.uint8)
+    u = np.frombuffer(frame[y_plane_size : y_plane_size + uv_plane_size], dtype=np.uint8)
+    v = np.frombuffer(
+        frame[y_plane_size + uv_plane_size : y_plane_size + 2 * uv_plane_size],
+        dtype=np.uint8,
+    )
+
+    # 4) Reshape planes
+    y = y.reshape(orig_height, orig_width)
+    u = u.reshape(orig_chroma_height, orig_chroma_width)
+    v = v.reshape(orig_chroma_height, orig_chroma_width)
+
+    # ---------------------------------------------------------
+    # Scale preserving aspect ratio or do letterbox/pillarbox
+    # ---------------------------------------------------------
+    input_aspect = orig_width / orig_height
+    output_aspect = new_width / new_height
+
+    if abs(input_aspect - output_aspect) < 1e-6:
+        # Same aspect ratio; do a straightforward resize
+        scaled_y = cv2.resize(y, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+
+        # For U, V we should scale to half-dimensions (rounded up)
+        # of the new size. But OpenCV requires exact (int) dims, so:
+        target_u_width = half_ceil(new_width)
+        target_u_height = half_ceil(new_height)
+
+        scaled_u = cv2.resize(u, (target_u_width, target_u_height), interpolation=cv2.INTER_LINEAR)
+        scaled_v = cv2.resize(v, (target_u_width, target_u_height), interpolation=cv2.INTER_LINEAR)
+
+        # Flatten and return
+        return np.concatenate([scaled_y.flatten(), scaled_u.flatten(), scaled_v.flatten()]).astype(np.uint8).tobytes()
+
+    # Otherwise, the aspect ratios differ => letterbox or pillarbox
+    if input_aspect > output_aspect:
+        # The image is relatively wider => match width, shrink height
+        scaled_width = new_width
+        scaled_height = int(round(new_width / input_aspect))
+    else:
+        # The image is relatively taller => match height, shrink width
+        scaled_height = new_height
+        scaled_width = int(round(new_height * input_aspect))
+
+    # 5) Resize Y, U, and V to the scaled dimensions
+    scaled_y = cv2.resize(y, (scaled_width, scaled_height), interpolation=cv2.INTER_LINEAR)
+
+    # For U, V, use half-dimensions of the scaled result, rounding up.
+    scaled_u_width = half_ceil(scaled_width)
+    scaled_u_height = half_ceil(scaled_height)
+    scaled_u = cv2.resize(u, (scaled_u_width, scaled_u_height), interpolation=cv2.INTER_LINEAR)
+    scaled_v = cv2.resize(v, (scaled_u_width, scaled_u_height), interpolation=cv2.INTER_LINEAR)
+
+    # 6) Create the output buffers. For "dark" black:
+    #    Y=0, U=128, V=128.
+    final_y = np.zeros((new_height, new_width), dtype=np.uint8)
+    final_u = np.full((half_ceil(new_height), half_ceil(new_width)), 128, dtype=np.uint8)
+    final_v = np.full((half_ceil(new_height), half_ceil(new_width)), 128, dtype=np.uint8)
+
+    # 7) Compute centering offsets for each plane (Y first)
+    offset_y = (new_height - scaled_height) // 2
+    offset_x = (new_width - scaled_width) // 2
+
+    final_y[offset_y : offset_y + scaled_height, offset_x : offset_x + scaled_width] = scaled_y
+
+    # Offsets for U and V planes are half of the Y offsets (integer floor)
+    offset_y_uv = offset_y // 2
+    offset_x_uv = offset_x // 2
+
+    final_u[
+        offset_y_uv : offset_y_uv + scaled_u_height,
+        offset_x_uv : offset_x_uv + scaled_u_width,
+    ] = scaled_u
+    final_v[
+        offset_y_uv : offset_y_uv + scaled_u_height,
+        offset_x_uv : offset_x_uv + scaled_u_width,
+    ] = scaled_v
+
+    # 8) Flatten back to I420 layout and return bytes
+
+    return np.concatenate([final_y.flatten(), final_u.flatten(), final_v.flatten()]).astype(np.uint8).tobytes()
+
+
 
 def generate_jwt(client_id, client_secret):
     iat = datetime.utcnow()
@@ -130,6 +238,8 @@ class ZoomBotAdapter(BotAdapter):
         self.virtual_camera_video_source = None
         self.video_source_helper = None
         self.video_frame_size = (1920, 1080)
+        self.send_stuff_dimensions = (1840, 3564)
+        self.send_stuff_ticker = 0
 
         self.automatic_leave_configuration = automatic_leave_configuration
 
@@ -377,6 +487,7 @@ class ZoomBotAdapter(BotAdapter):
         self.virtual_camera_video_source = zoom.ZoomSDKVideoSourceCallbacks(
             onInitializeCallback=self.on_virtual_camera_initialize_callback,
             onStartSendCallback=self.on_virtual_camera_start_send_callback,
+            onPropertyChangeCallback=self.on_virtual_camera_property_change,
         )
         self.video_source_helper = zoom.GetRawdataVideoSourceHelper()
         if self.video_source_helper:
@@ -389,24 +500,61 @@ class ZoomBotAdapter(BotAdapter):
         else:
             logger.info("video_source_helper is None")
 
+
+
+    def send_more_stuff(self):
+        import random
+        #1064, 1840
+        if self.video_sender:
+            blank = None
+            with open('yuv_frame.yuv', 'rb') as f:
+                blank = f.read()
+            #print(f"len(blank) = {len(blank)}")
+# (690, 2070
+
+            scaled_blank = scale_i420(blank, (3564, 1840), (640, 480))
+            self.video_sender.sendVideoFrame(scaled_blank, 640, 480, 0, zoom.FrameDataFormat_I420_FULL)
+            #self.send_stuff_dimensions = (
+            #    self.send_stuff_dimensions[0] + random.randint(-500, 500),
+            #    self.send_stuff_dimensions[1] + random.randint(-500, 500)
+            #)
+            # Make sure it isn't negative
+            self.send_stuff_dimensions = (max(self.send_stuff_dimensions[0], 1), max(self.send_stuff_dimensions[1], 1))
+            #print(f"self.send_stuff_dimensions = {self.send_stuff_dimensions}")
+            self.send_stuff_ticker += 1
+            return True
+
     def on_virtual_camera_start_send_callback(self):
         logger.info("on_virtual_camera_start_send_callback called")
         # As soon as we get this callback, we need to send a blank frame and it will fail with SDKERR_WRONG_USAGE
         # Then the callback will be triggered again and subsequent calls will succeed.
         # Not sure why this happens.
         if self.video_sender and not self.on_virtual_camera_start_send_callback_called:
-            blank = create_black_yuv420_frame(640, 360)
-            initial_send_video_frame_response = self.video_sender.sendVideoFrame(blank, 640, 360, 0, zoom.FrameDataFormat_I420_FULL)
+            blank = None
+            with open('yuv_frame.yuv', 'rb') as f:
+                blank = f.read()
+            print(f"len(blank) = {len(blank)}")
+            initial_send_video_frame_response = self.video_sender.sendVideoFrame(blank, 3564, 1840, 0, zoom.FrameDataFormat_I420_FULL)
             logger.info(f"initial_send_video_frame_response = {initial_send_video_frame_response}")
+            GLib.timeout_add(50, self.send_more_stuff)
+
         self.on_virtual_camera_start_send_callback_called = True
+
+    def on_virtual_camera_property_change(self, support_cap_list, suggest_cap):
+        print(f"on_virtual_camera_property_change called")
+        #print(f"support_cap_list = {list(map(lambda x: f'{x.width}x{x.height}x{x.frame}', support_cap_list))}")
+        print(f"suggest_cap = {suggest_cap.width}x{suggest_cap.height}x{suggest_cap.frame}")
 
     def on_virtual_camera_initialize_callback(self, video_sender, support_cap_list, suggest_cap):
         self.video_sender = video_sender
+        print(f"support_cap_list = {list(map(lambda x: f'{x.width}x{x.height}x{x.frame}', support_cap_list))}")
+        print(f"suggest_cap = {suggest_cap.width}x{suggest_cap.height}x{suggest_cap.frame}")
 
     def send_raw_image(self, yuv420_image_bytes):
         if not self.on_virtual_camera_start_send_callback_called:
             raise Exception("on_virtual_camera_start_send_callback_called not called so cannot send raw image")
-        send_video_frame_response = self.video_sender.sendVideoFrame(yuv420_image_bytes, 640, 360, 0, zoom.FrameDataFormat_I420_FULL)
+        print(f"len(yuv420_image_bytes) = {len(yuv420_image_bytes)}")
+        send_video_frame_response = self.video_sender.sendVideoFrame(yuv420_image_bytes, 3564, 1840, 0, zoom.FrameDataFormat_I420_FULL)
         logger.info(f"send_raw_image send_video_frame_response = {send_video_frame_response}")
 
     def set_up_bot_audio_input(self):

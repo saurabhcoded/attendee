@@ -103,7 +103,7 @@ def calculate_audio_duration_ms(audio_data: bytes, content_type: str) -> int:
     return duration_ms
 
 
-def png_to_yuv420_frame(png_bytes: bytes, width: int = 640, height: int = 360) -> bytes:
+def png_to_yuv420_frame(png_bytes: bytes, width: int = 3564, height: int = 1840) -> bytes:
     """
     Convert PNG image bytes to YUV420 (I420) format and resize to specified dimensions.
 
@@ -115,15 +115,16 @@ def png_to_yuv420_frame(png_bytes: bytes, width: int = 640, height: int = 360) -
     Returns:
         bytes: YUV420 formatted frame data
     """
-    # Convert PNG bytes to numpy array
+    # Convert PNG bytes to numpy array, preserving alpha channel if present
     png_array = np.frombuffer(png_bytes, np.uint8)
-    bgr_frame = cv2.imdecode(png_array, cv2.IMREAD_COLOR)
-
-    # Resize the frame to desired dimensions
-    bgr_frame = cv2.resize(bgr_frame, (width, height), interpolation=cv2.INTER_AREA)
+    bgra_frame = cv2.imdecode(png_array, cv2.IMREAD_UNCHANGED)
 
     # Convert BGR to YUV420 (I420)
-    yuv_frame = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2YUV_I420)
+    yuv_frame = cv2.cvtColor(bgra_frame, cv2.COLOR_BGRA2YUV_I420)
+
+    # Write the raw yuv frame to a file
+    with open("yuv_frame.yuv", "wb") as f:
+        f.write(yuv_frame.tobytes())
 
     # Return as bytes
     return yuv_frame.tobytes()
