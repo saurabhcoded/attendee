@@ -222,8 +222,8 @@ class FullCaptureManager {
     }
 
     startRecording() {
-        // Options for better quality
-        const options = { mimeType: 'video/mp4' };
+        // Options for WebM format which works better for streaming
+        const options = { mimeType: 'video/webm; codecs=vp8,opus' };
         this.mediaRecorder = new MediaRecorder(this.finalStream, options);
 
         this.mediaRecorder.ondataavailable = (event) => {
