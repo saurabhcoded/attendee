@@ -1177,20 +1177,14 @@ new RTCInterceptor({
         }
     }
 });
-
+/*
 const pcmChunkQueue = [];
 
 // We'll store the current chunk in progress and read from it each callback.
 let currentChunk = null;
 let currentIndex = 0;
 
-/**
- * Call this function (e.g. via Selenium's JS execution) with a chunk of 16-bit PCM data.
- * Example: window.enqueuePCMChunk([Int16 values...])
- *
- * @param {Array|Int16Array} pcmData - array of 16-bit samples
- */
-window.enqueuePCMChunk = function(pcmData) {
+w.enqueuePCMChunk = function(pcmData) {
   // Ensure pcmData is an Int16Array; if not, convert
   let chunk;
   if (pcmData instanceof Int16Array) {
@@ -1256,3 +1250,4 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
       });
   });
 };
+*/
