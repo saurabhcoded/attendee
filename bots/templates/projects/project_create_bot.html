@@ -43,5 +43,57 @@
             </form>
         </div>
     </div>
+    
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5 class="mb-0">API Reference</h5>
+        </div>
+        <div class="card-body">
+            <p class="card-text">You can also create bots programmatically using our API:</p>
+            <h6 class="mt-3">POST /api/v1/bots</h6>
+            <div class="bg-light p-3 mt-2 rounded">
+                <pre class="mb-0"><code>curl https://app.attendee.dev/api/v1/bots \
+--request POST \
+--header 'Authorization: Token YOUR_API_KEY_HERE' \
+--header 'Content-Type: application/json' \
+--data '{
+  "meeting_url": "https://zoom.us/j/123?pwd=456",
+  "bot_name": "My Bot"
+}'</code></pre>
+            </div>
+        </div>
+    </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Get form fields
+    const meetingUrlField = document.getElementById('id_meeting_url');
+    const botNameField = document.getElementById('id_bot_name');
+    const codeBlock = document.querySelector('pre code');
+    
+    if (meetingUrlField && botNameField && codeBlock) {
+        // Function to update the curl command
+        function updateCurlCommand() {
+            const meetingUrl = meetingUrlField.value || 'https://zoom.us/j/123?pwd=456';
+            const botName = botNameField.value || 'My Bot';
+            
+            const curlCommand = `curl https://app.attendee.dev/api/v1/bots \
+--request POST \
+--header 'Authorization: Token YOUR_API_KEY_HERE' \
+--header 'Content-Type: application/json' \
+--data '{
+  "meeting_url": "${meetingUrl}",
+  "bot_name": "${botName}"
+}'`;
+            
+            codeBlock.textContent = curlCommand;
+        }
+        
+        // Add event listeners to form fields
+        meetingUrlField.addEventListener('input', updateCurlCommand);
+        botNameField.addEventListener('input', updateCurlCommand);
+    }
+});
+</script>
 {% endblock %}
