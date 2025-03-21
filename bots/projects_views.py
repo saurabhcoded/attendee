@@ -236,7 +236,6 @@ class CreateBotView(LoginRequiredMixin, ProjectUrlContextMixin, View):
         class BotCreateForm(forms.Form):
             meeting_url = forms.URLField(required=True, label="Meeting URL", help_text="The URL of the meeting to join (Zoom, Google Meet, MS Teams)")
             bot_name = forms.CharField(required=False, label="Bot Name", initial="Meeting Bot", help_text="A friendly name for this bot")
-            recording_format = forms.ChoiceField(required=False, label="Recording Format", choices=[("webm", "WebM"), ("mp4", "MP4")], initial="webm")
 
         context = self.get_project_context(object_id, project)
         context["form"] = BotCreateForm()
@@ -250,7 +249,6 @@ class CreateBotView(LoginRequiredMixin, ProjectUrlContextMixin, View):
         class BotCreateForm(forms.Form):
             meeting_url = forms.URLField(required=True, label="Meeting URL", help_text="The URL of the meeting to join (Zoom, Google Meet, MS Teams)")
             bot_name = forms.CharField(required=False, label="Bot Name", initial="Meeting Bot", help_text="A friendly name for this bot")
-            recording_format = forms.ChoiceField(required=False, label="Recording Format", choices=[("webm", "WebM"), ("mp4", "MP4")], initial="webm")
 
         form = BotCreateForm(request.POST)
         if form.is_valid():
@@ -258,7 +256,7 @@ class CreateBotView(LoginRequiredMixin, ProjectUrlContextMixin, View):
                 # Get form data
                 meeting_url = form.cleaned_data["meeting_url"]
                 bot_name = form.cleaned_data.get("bot_name") or "Meeting Bot"
-                recording_format = form.cleaned_data.get("recording_format", "webm")
+                recording_format = "webm"  # Default to webm format
 
                 # Create bot settings
                 settings = {"transcription_settings": {"deepgram": {"tier": "nova", "language": "en", "model": "general"}}, "rtmp_settings": {}, "recording_settings": {"format": recording_format}}
