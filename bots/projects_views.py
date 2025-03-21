@@ -259,7 +259,10 @@ class CreateBotView(LoginRequiredMixin, ProjectUrlContextMixin, View):
                 recording_format = "webm"  # Default to webm format
 
                 # Create bot settings
-                settings = {"transcription_settings": {"deepgram": {"tier": "nova", "language": "en", "model": "general"}}, "rtmp_settings": {}, "recording_settings": {"format": recording_format}}
+                settings = {
+                    "transcription_settings": {"deepgram": {"language": "en"}},
+                    "recording_settings": {"format": recording_format},
+                }
 
                 # Create the Bot
                 bot = Bot.objects.create(project=project, meeting_url=meeting_url, name=bot_name, settings=settings)
