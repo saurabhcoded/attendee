@@ -1,24 +1,24 @@
 {
   "subdomain": "attendee",
-  "guides": [
-    {
-      "name": "Basics",
+  "customDomain": "attendee.apidocumentation.com",
+  "guides": [{
+      "name": "Attendee",
       "sidebar": [
         {
           "path": "docs/basics.md",
           "type": "page"
+        },
+        {
+          "path": "docs/how-to.md",
+          "type": "page"
         }
       ]
-    },
-{
-      "name": "How To Guide",
-      "path": "docs/how-to.md"
     }
   ],
   "references": [
     {
       "name": "API Reference",
-      "path": "docs/openapi.yaml"
+      "path": "docs/openapi.yml"
     }
   ],
   "publishOnMerge": true
