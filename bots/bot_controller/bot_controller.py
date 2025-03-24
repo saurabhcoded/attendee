@@ -62,6 +62,8 @@ class BotController:
             upsert_caption_callback=self.closed_caption_manager.upsert_caption,
             automatic_leave_configuration=self.automatic_leave_configuration,
             add_encoded_mp4_chunk_callback=self.media_recorder_receiver.on_encoded_mp4_chunk,
+            recording_view=self.bot_in_db.recording_view(),
+            google_meet_closed_captions_language=self.bot_in_db.google_meet_closed_captions_language(),
         )
 
     def get_teams_bot_adapter(self):
@@ -77,6 +79,7 @@ class BotController:
             upsert_caption_callback=self.closed_caption_manager.upsert_caption,
             automatic_leave_configuration=self.automatic_leave_configuration,
             add_encoded_mp4_chunk_callback=None,
+            recording_view=self.bot_in_db.recording_view(),
         )
 
     def get_zoom_bot_adapter(self):

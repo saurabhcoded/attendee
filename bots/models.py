@@ -116,6 +116,11 @@ class RecordingFormats(models.TextChoices):
     WEBM = "webm"
 
 
+class RecordingViews(models.TextChoices):
+    SPEAKER_VIEW = "speaker_view"
+    GALLERY_VIEW = "gallery_view"
+
+
 class Bot(models.Model):
     OBJECT_ID_PREFIX = "bot_"
 
@@ -177,6 +182,9 @@ class Bot(models.Model):
     def deepgram_detect_language(self):
         return self.settings.get("transcription_settings", {}).get("deepgram", {}).get("detect_language", None)
 
+    def google_meet_closed_captions_language(self):
+        return self.settings.get("transcription_settings", {}).get("meeting_closed_captions", {}).get("google_meet_language", None)
+
     def rtmp_destination_url(self):
         rtmp_settings = self.settings.get("rtmp_settings")
         if not rtmp_settings:
@@ -195,6 +203,12 @@ class Bot(models.Model):
         if recording_settings is None:
             recording_settings = {}
         return recording_settings.get("format", RecordingFormats.WEBM)
+
+    def recording_view(self):
+        recording_settings = self.settings.get("recording_settings", {})
+        if recording_settings is None:
+            recording_settings = {}
+        return recording_settings.get("view", RecordingViews.SPEAKER_VIEW)
 
     def last_bot_event(self):
         return self.bot_events.order_by("-created_at").first()
