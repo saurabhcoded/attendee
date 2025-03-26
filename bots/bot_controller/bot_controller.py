@@ -684,7 +684,10 @@ class BotController:
             return
 
         if message.get("message") == BotAdapter.Messages.MEETING_ENDED:
-            logger.info("Received message that meeting ended")
+            if BotEventManager.is_terminal_state(self.bot_in_db.state):
+                logger.info("Received message that meeting ended for bot %s, but bot is in terminal state so ignoring", self.bot_in_db.object_id)
+                return
+            logger.info("Received message that meeting ended for bot %s", self.bot_in_db.object_id)
             self.flush_utterances()
             if self.bot_in_db.state == BotStates.LEAVING:
                 BotEventManager.create_event(bot=self.bot_in_db, event_type=BotEventTypes.BOT_LEFT_MEETING)
