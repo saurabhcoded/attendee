@@ -63,13 +63,19 @@ def create_mock_google_meet_driver():
 class TestGoogleMeetBot(TransactionTestCase):
     @classmethod
     def setUpClass(cls):
-        super().setUpClass()
-
-        # Set required environment variables
+        # Set required environment variables before super().setUpClass()
+        # so they're available when Django settings are loaded
         os.environ["AWS_RECORDING_STORAGE_BUCKET_NAME"] = "test-bucket"
         os.environ["CHARGE_CREDITS_FOR_BOTS"] = "false"
 
+        super().setUpClass()
+
     def setUp(self):
+        # Additionally modify Django settings directly to ensure the values are used
+        from django.conf import settings
+
+        settings.AWS_RECORDING_STORAGE_BUCKET_NAME = "test-bucket"
+
         # Recreate organization and project for each test
         self.organization = Organization.objects.create(name="Test Org")
         self.project = Project.objects.create(name="Test Project", organization=self.organization)
@@ -386,7 +392,7 @@ class TestGoogleMeetBot(TransactionTestCase):
 
             # Now wait for the thread to finish naturally
             bot_thread.join(timeout=5)  # Give it time to clean up
-            
+
             # Close the database connection since we're in a thread
             connection.close()
 
