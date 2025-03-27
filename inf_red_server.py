@@ -26,9 +26,14 @@ def generate_webm_file(path):
         '-re',
         '-i', path,
         '-c:v', 'libvpx-vp9',
-        '-b:v', '1M',
+        '-deadline', 'realtime',
+        '-cpu-used', '4',
+        '-b:v', '800k',
+        '-bufsize', '1600k',
         '-c:a', 'libopus',
+        '-b:a', '128k',
         '-f', 'webm',
+        '-flush_packets', '1',
         'pipe:1'
     ]
     return command
@@ -48,10 +53,11 @@ def video():
             process.stdout.close()
             process.stderr.close()
 
-    if current_source == 'black':
-        ffmpeg_cmd = generate_black_video()
-    else:
-        ffmpeg_cmd = generate_webm_file(current_source)
+    #if current_source == 'black':
+    #    ffmpeg_cmd = generate_black_video()
+    #else:
+    #    ffmpeg_cmd = generate_webm_file(current_source)
+    ffmpeg_cmd = generate_webm_file("/home/nduncan/Downloads/testfudge.webm")
 
     return Response(
         generate_ffmpeg_output(ffmpeg_cmd),

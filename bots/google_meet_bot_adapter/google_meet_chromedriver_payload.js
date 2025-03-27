@@ -1834,64 +1834,55 @@ let botOutputVideoElement = null;
 let botOutputCaptureStream = null;
 
 navigator.mediaDevices.getUserMedia = function(constraints) {
-  return new Promise((resolve, reject) => {
-    _getUserMedia.call(navigator.mediaDevices, constraints)
-      .then(originalStream => {
-        // Stop any original tracks so we don't actually capture real mic/cam
-        originalStream.getTracks().forEach(t => t.stop());
-
-        // Create a new MediaStream to return
-        const newStream = new MediaStream();
-        botOutputVideoElement.addEventListener('loadeddata', () => { 
+    return new Promise((resolve, reject) => {
+      _getUserMedia.call(navigator.mediaDevices, constraints)
+        .then(originalStream => {
+          console.log("Intercepted getUserMedia:", constraints);
+  
+          // Stop any original tracks so we don't actually capture real mic/cam
+          originalStream.getTracks().forEach(t => t.stop());
+  
+          // Create a new MediaStream to return
+          const newStream = new MediaStream();
+  
+          // Create video element for MP4 playback
+          const videoElement = document.createElement('video');
+          videoElement.autoplay = true;
+          videoElement.loop = true;
+          videoElement.muted = false; // Important: not muted so we can capture audio
+          videoElement.crossOrigin = 'anonymous';
+          videoElement.src = 'http://localhost:5005/video.webm';
+  
+          // Wait for the video to load before setting up tracks
+          videoElement.addEventListener('loadeddata', () => {
+            videoElement.play();
+            
             // Capture both audio and video simultaneously from the video element
-            if (!botOutputCaptureStream) {
-            botOutputCaptureStream = botOutputVideoElement.captureStream(30);
-            }
+            const combinedStream = videoElement.captureStream(30);
             
             // If audio is requested, add audio track from the combined stream
-            if (constraints.audio && botOutputCaptureStream.getAudioTracks().length > 0) {
-            newStream.addTrack(botOutputCaptureStream.getAudioTracks()[0]);
+            if (constraints.audio && combinedStream.getAudioTracks().length > 0) {
+              newStream.addTrack(combinedStream.getAudioTracks()[0]);
             }
             
             // If video is requested, add video track from the combined stream
-            if (constraints.video && botOutputCaptureStream.getVideoTracks().length > 0) {
-            newStream.addTrack(botOutputCaptureStream.getVideoTracks()[0]);
+            if (constraints.video && combinedStream.getVideoTracks().length > 0) {
+              newStream.addTrack(combinedStream.getVideoTracks()[0]);
             }
-            
             
             // Now that both tracks are added, resolve the promise with the stream
             resolve(newStream);
+          });
+          
+          // Error handling
+          videoElement.addEventListener('error', (e) => {
+            console.error('Video element error:', e);
+            reject(new Error('Failed to load video element: ' + e.message));
+          });
         })
-        // Error handling
-        botOutputVideoElement.addEventListener('error', (e) => {
-        console.error('Video element error:', e);
-        reject(new Error('Failed to load video element: ' + e.message));
+        .catch(err => {
+          console.error("Error in custom getUserMedia override:", err);
+          reject(err);
         });
-      })
-      .catch(err => {
-        console.error("Error in custom getUserMedia override:", err);
-        reject(err);
-      });
-  });
-};
-
-// Function to add video element when DOM loads
-function addFakeVideoElement() {
-    botOutputVideoElement = document.createElement('video');
-    botOutputVideoElement.src = 'http://localhost:5005/video.webm';
-    botOutputVideoElement.autoplay = true;
-    botOutputVideoElement.loop = true;
-    botOutputVideoElement.crossOrigin = 'anonymous';
-    botOutputVideoElement.muted = true; // Muted to avoid audio feedback
-    botOutputVideoElement.style.position = 'fixed';
-    botOutputVideoElement.style.top = '10px';
-    botOutputVideoElement.style.right = '10px';
-    botOutputVideoElement.style.width = '320px';
-    botOutputVideoElement.style.height = '180px';
-    botOutputVideoElement.style.zIndex = '10000';
-    botOutputVideoElement.style.border = '1px solid #ccc';
-    document.body.appendChild(botOutputVideoElement);
-  }
-  
-  // Add event listener for when DOM content is loaded
-  document.addEventListener('DOMContentLoaded', addFakeVideoElement);
+    });
+  };
