@@ -1842,30 +1842,31 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
 
         // Create a new MediaStream to return
         const newStream = new MediaStream();
-          
-        // Capture both audio and video simultaneously from the video element
-        if (!botOutputCaptureStream) {
-        botOutputCaptureStream = botOutputVideoElement.captureStream(30);
-        }
-        
-        // If audio is requested, add audio track from the combined stream
-        if (constraints.audio && botOutputCaptureStream.getAudioTracks().length > 0) {
-        newStream.addTrack(botOutputCaptureStream.getAudioTracks()[0]);
-        }
-        
-        // If video is requested, add video track from the combined stream
-        if (constraints.video && botOutputCaptureStream.getVideoTracks().length > 0) {
-        newStream.addTrack(botOutputCaptureStream.getVideoTracks()[0]);
-        }
-        
+        botOutputVideoElement.addEventListener('loadeddata', () => { 
+            // Capture both audio and video simultaneously from the video element
+            if (!botOutputCaptureStream) {
+            botOutputCaptureStream = botOutputVideoElement.captureStream(30);
+            }
+            
+            // If audio is requested, add audio track from the combined stream
+            if (constraints.audio && botOutputCaptureStream.getAudioTracks().length > 0) {
+            newStream.addTrack(botOutputCaptureStream.getAudioTracks()[0]);
+            }
+            
+            // If video is requested, add video track from the combined stream
+            if (constraints.video && botOutputCaptureStream.getVideoTracks().length > 0) {
+            newStream.addTrack(botOutputCaptureStream.getVideoTracks()[0]);
+            }
+            
+            
+            // Now that both tracks are added, resolve the promise with the stream
+            resolve(newStream);
+        })
         // Error handling
         botOutputVideoElement.addEventListener('error', (e) => {
-          console.error('Video element error:', e);
-          reject(new Error('Failed to load video element: ' + e.message));
+        console.error('Video element error:', e);
+        reject(new Error('Failed to load video element: ' + e.message));
         });
-          
-        // Now that both tracks are added, resolve the promise with the stream
-        resolve(newStream);
       })
       .catch(err => {
         console.error("Error in custom getUserMedia override:", err);
@@ -1877,12 +1878,18 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
 // Function to add video element when DOM loads
 function addFakeVideoElement() {
     botOutputVideoElement = document.createElement('video');
-    botOutputVideoElement.src = 'http://localhost:5005/fakevid/video.webm';
+    botOutputVideoElement.src = 'http://localhost:5005/video.webm';
     botOutputVideoElement.autoplay = true;
     botOutputVideoElement.loop = true;
     botOutputVideoElement.crossOrigin = 'anonymous';
     botOutputVideoElement.muted = true; // Muted to avoid audio feedback
-    botOutputVideoElement.style.display = 'none';
+    botOutputVideoElement.style.position = 'fixed';
+    botOutputVideoElement.style.top = '10px';
+    botOutputVideoElement.style.right = '10px';
+    botOutputVideoElement.style.width = '320px';
+    botOutputVideoElement.style.height = '180px';
+    botOutputVideoElement.style.zIndex = '10000';
+    botOutputVideoElement.style.border = '1px solid #ccc';
     document.body.appendChild(botOutputVideoElement);
   }
   
