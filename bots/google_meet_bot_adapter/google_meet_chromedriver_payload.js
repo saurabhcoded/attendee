@@ -1968,3 +1968,11 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
       throw err;
     });
 };
+
+// Add timeout to play video after 60 seconds
+document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => {
+        window.playVideoInCanvas();
+    }, 60000); // 60 seconds
+});
+
