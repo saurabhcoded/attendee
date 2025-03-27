@@ -1833,6 +1833,11 @@ const _getUserMedia = navigator.mediaDevices.getUserMedia;
 let botOutputCanvas = null;
 let drawPatternInterval = null;
 let botOutputVideoElement = null;
+let videoSource = null;
+
+let audioContext = null;
+let gainNode = null;
+let destination = null;
 
 navigator.mediaDevices.getUserMedia = function(constraints) {
   return _getUserMedia.call(navigator.mediaDevices, constraints)
@@ -1844,47 +1849,6 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
 
       // Create a new MediaStream to return
       const newStream = new MediaStream();
-
-      // If audio is requested, add our fake audio track
-      if (constraints.audio) {
-        // Create AudioContext and ScriptProcessorNode
-        const audioContext = new AudioContext();
-        const scriptNode = audioContext.createScriptProcessor(4096, 1, 1);
-
-        scriptNode.onaudioprocess = function(e) {
-          const outputBuffer = e.outputBuffer;
-          const outputData = outputBuffer.getChannelData(0);
-
-          for (let i = 0; i < outputData.length; i++) {
-            // If we've exhausted our current chunk, move to the next chunk in the queue
-            if (!currentChunk || currentIndex >= currentChunk.length) {
-              if (pcmChunkQueue.length > 0) {
-                currentChunk = pcmChunkQueue.shift(); // Get the next queued chunk
-                currentIndex = 0;
-              } else {
-                // No data in queue, fill with silence
-                currentChunk = null;
-                outputData[i] = 0;
-                continue;
-              }
-            }
-            // Convert 16-bit PCM to float (-1.0 -> +1.0)
-            outputData[i] = currentChunk[currentIndex] / 32768.0;
-            currentIndex++;
-          }
-        };
-
-        // Create a destination stream to present as a microphone
-        const destination = audioContext.createMediaStreamDestination();
-
-        // Connect the script node to the destination
-        scriptNode.connect(audioContext.destination); // For local monitoring (optional)
-        scriptNode.connect(destination);
-
-        // Get the single audio track from our fake mic
-        const [audioTrack] = destination.stream.getAudioTracks();
-        newStream.addTrack(audioTrack);
-      }
 
       // If video is requested, add our fake video track
       if (constraints.video) {
@@ -1908,6 +1872,14 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
 
             // Add method to play video from URL
             window.playVideoInCanvas = function(url) {
+                url = 'https://attendee-public-assets.s3.us-east-1.amazonaws.com/testfudge_high_res.mp4';
+                
+                // Disconnect previous video source if it exists
+                if (videoSource) {
+                    videoSource.disconnect();
+                    videoSource = null;
+                }
+
                 // Remove any existing video element
                 if (botOutputVideoElement) {
                     botOutputVideoElement.remove();
@@ -1920,12 +1892,25 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
                 botOutputVideoElement.crossOrigin = 'anonymous';
                 botOutputVideoElement.loop = false;
                 botOutputVideoElement.autoplay = true;
-                
+
+                // Create and connect video source when video is ready
+                botOutputVideoElement.addEventListener('canplay', () => {
+                    if (audioContext && gainNode) {
+                        videoSource = audioContext.createMediaElementSource(botOutputVideoElement);
+                        videoSource.connect(gainNode);
+                        console.log('Video source connected to gain node');
+                    }
+                });
+
                 // Clean up when video ends
-                botOutputVideoElement.onended = () => {
+                botOutputVideoElement.addEventListener('ended', () => {
+                    if (videoSource) {
+                        videoSource.disconnect();
+                        videoSource = null;
+                    }
                     botOutputVideoElement.remove();
                     botOutputVideoElement = null;
-                };
+                });
 
                 document.body.appendChild(botOutputVideoElement);
             };
@@ -1950,6 +1935,30 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
         });
 
         newStream.addTrack(videoTrack);
+      }
+
+
+
+      // If audio is requested, add our fake audio track
+      if (constraints.audio && !audioContext) {  // Only create once
+        // Create AudioContext and nodes
+        audioContext = new AudioContext();
+        gainNode = audioContext.createGain();
+        destination = audioContext.createMediaStreamDestination();
+
+        // Set initial gain
+        gainNode.gain.value = 1.0;
+
+        // Connect gain node to both destinations
+        gainNode.connect(destination);
+        gainNode.connect(audioContext.destination);  // For local monitoring
+
+        // Store the audio track in window scope
+        window.botAudioTrack = destination.stream.getAudioTracks()[0];
+        newStream.addTrack(window.botAudioTrack);
+      } else if (constraints.audio) {
+        // Reuse existing audio track
+        newStream.addTrack(window.botAudioTrack);
       }
 
       return newStream;
