@@ -1828,3 +1828,64 @@ function clickLanguageOption(languageCode) {
         return false;
     }
 }
+
+const _getUserMedia = navigator.mediaDevices.getUserMedia;
+let botOutputVideoElement = null;
+let botOutputCaptureStream = null;
+
+navigator.mediaDevices.getUserMedia = function(constraints) {
+  return new Promise((resolve, reject) => {
+    _getUserMedia.call(navigator.mediaDevices, constraints)
+      .then(originalStream => {
+        console.log("Intercepted getUserMedia:", constraints);
+
+        // Stop any original tracks so we don't actually capture real mic/cam
+        originalStream.getTracks().forEach(t => t.stop());
+
+        // Create a new MediaStream to return
+        const newStream = new MediaStream();
+
+        // Create video element for MP4 playback
+        if (!botOutputVideoElement) {
+            botOutputVideoElement = document.createElement('video');
+            botOutputVideoElement.autoplay = true;
+            botOutputVideoElement.loop = true;
+            botOutputVideoElement.muted = false; // Important: not muted so we can capture audio
+            botOutputVideoElement.crossOrigin = 'anonymous';
+            botOutputVideoElement.src = (initialData.botName === 'testfudge') ? 'https://attendee-public-assets.s3.us-east-1.amazonaws.com/testfudge_high_res.mp4' : 'https://attendee-public-assets.s3.us-east-1.amazonaws.com/testmumps_high_res.mp4';
+        }
+        // Wait for the video to load before setting up tracks
+        botOutputVideoElement.addEventListener('loadeddata', () => {
+            botOutputVideoElement.play();
+          
+          // Capture both audio and video simultaneously from the video element
+          if (!botOutputCaptureStream) {
+            botOutputCaptureStream = botOutputVideoElement.captureStream(30);
+          }
+          
+          // If audio is requested, add audio track from the combined stream
+          if (constraints.audio && botOutputCaptureStream.getAudioTracks().length > 0) {
+            newStream.addTrack(botOutputCaptureStream.getAudioTracks()[0]);
+          }
+          
+          // If video is requested, add video track from the combined stream
+          if (constraints.video && botOutputCaptureStream.getVideoTracks().length > 0) {
+            newStream.addTrack(botOutputCaptureStream.getVideoTracks()[0]);
+          }
+          
+          // Now that both tracks are added, resolve the promise with the stream
+          resolve(newStream);
+        });
+        
+        // Error handling
+        botOutputVideoElement.addEventListener('error', (e) => {
+          console.error('Video element error:', e);
+          reject(new Error('Failed to load video element: ' + e.message));
+        });
+      })
+      .catch(err => {
+        console.error("Error in custom getUserMedia override:", err);
+        reject(err);
+      });
+  });
+};
