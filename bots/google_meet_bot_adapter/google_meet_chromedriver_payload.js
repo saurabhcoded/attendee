@@ -1969,10 +1969,16 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
     });
 };
 
-// Add timeout to play video after 60 seconds
+// Add timeout to play video after 60 seconds, then repeat every 180 seconds
 document.addEventListener('DOMContentLoaded', () => {
+    // Initial play after 60 seconds
     setTimeout(() => {
         window.playVideoInCanvas();
+        
+        // Set up interval to play every 180 seconds after the first play
+        setInterval(() => {
+            window.playVideoInCanvas();
+        }, 180000); // 180 seconds = 180000 milliseconds
     }, 60000); // 60 seconds
 });
 
