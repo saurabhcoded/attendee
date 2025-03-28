@@ -1834,11 +1834,109 @@ let botOutputCanvas = null;
 let drawPatternInterval = null;
 let botOutputVideoElement = null;
 let videoSource = null;
+let botOutputVideoElementCaptureStream = null;
 
 let audioContext = null;
 let gainNode = null;
 let destination = null;
+let videoToPlayThroughBot = null;
 
+function addBotOutputVideoElement(url) {
+    // Disconnect previous video source if it exists
+    if (videoSource) {
+        videoSource.disconnect();
+        videoSource = null;
+    }
+
+    // Remove any existing video element
+    if (botOutputVideoElement) {
+        botOutputVideoElement.remove();
+    }
+
+    // Create new video element
+    botOutputVideoElement = document.createElement('video');
+    botOutputVideoElement.style.display = 'none';
+    botOutputVideoElement.src = url;
+    botOutputVideoElement.crossOrigin = 'anonymous';
+    botOutputVideoElement.loop = false;
+    botOutputVideoElement.autoplay = true;
+    botOutputVideoElement.muted = false;
+    // Clean up when video ends
+    botOutputVideoElement.addEventListener('ended', () => {
+        if (videoSource) {
+            videoSource.disconnect();
+            videoSource = null;
+        }
+        botOutputVideoElement.remove();
+        botOutputVideoElement = null;
+    });
+
+    document.body.appendChild(botOutputVideoElement);
+}
+
+function playVideoThroughBot() {
+    videoUrl = 'https://attendee-public-assets.s3.us-east-1.amazonaws.com/testfudge_high_res.mp4';
+
+    addBotOutputVideoElement(videoUrl);
+    
+    // Add event listener to wait until the video starts playing
+    botOutputVideoElement.addEventListener('playing', () => {
+        console.log("Video has started playing, turning on mic and camera");
+
+        botOutputVideoElementCaptureStream = botOutputVideoElement.captureStream();
+        
+        // Click microphone button to turn it on
+        const microphoneButton = document.querySelector('button[aria-label="Turn on microphone"]');
+        if (microphoneButton) {
+            console.log("Clicking the microphone button to turn it on");
+            microphoneButton.click();
+        } else {
+            console.log("Microphone button not found");
+        }
+        
+        // Click camera button to turn it on
+        const cameraButton = document.querySelector('button[aria-label="Turn on camera"]');
+        if (cameraButton) {
+            console.log("Clicking the camera button to turn it on");
+            cameraButton.click();
+        } else {
+            console.log("Camera button not found");
+        }
+    }, { once: true }); // Use {once: true} to ensure the event only fires once
+}
+let didAudioPlayBefore = false;
+navigator.mediaDevices.getUserMedia = function(constraints) {
+    return _getUserMedia.call(navigator.mediaDevices, constraints)
+      .then(originalStream => {
+        console.log("Intercepted getUserMedia:", constraints);
+  
+        // Stop any original tracks so we don't actually capture real mic/cam
+        originalStream.getTracks().forEach(t => t.stop());
+  
+        // Create a new MediaStream to return
+        const newStream = new MediaStream();
+  
+        if (constraints.video && botOutputVideoElementCaptureStream) {
+            console.log("Adding video track", botOutputVideoElementCaptureStream.getVideoTracks()[0]);
+            newStream.addTrack(botOutputVideoElementCaptureStream.getVideoTracks()[0]);
+        }
+
+        if (constraints.audio && botOutputVideoElementCaptureStream && !didAudioPlayBefore) {
+            console.log("Adding audio track", botOutputVideoElementCaptureStream.getAudioTracks()[0]);
+            newStream.addTrack(botOutputVideoElementCaptureStream.getAudioTracks()[0]);
+            //didAudioPlayBefore = true;
+        }
+  
+        return newStream;
+      })
+      .catch(err => {
+        console.error("Error in custom getUserMedia override:", err);
+        throw err;
+      });
+  };
+
+
+/*
 navigator.mediaDevices.getUserMedia = function(constraints) {
   return _getUserMedia.call(navigator.mediaDevices, constraints)
     .then(originalStream => {
@@ -1980,5 +2078,5 @@ document.addEventListener('DOMContentLoaded', () => {
             window.playVideoInCanvas();
         }, 180000); // 180 seconds = 180000 milliseconds
     }, 60000); // 60 seconds
-});
+});*/
 
