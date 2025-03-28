@@ -1863,15 +1863,57 @@ function addBotOutputVideoElement(url) {
     botOutputVideoElement.muted = false;
     // Clean up when video ends
     botOutputVideoElement.addEventListener('ended', () => {
+        turnOffMicAndCamera();
         if (videoSource) {
             videoSource.disconnect();
             videoSource = null;
         }
         botOutputVideoElement.remove();
         botOutputVideoElement = null;
+        botOutputVideoElementCaptureStream = null;
     });
 
     document.body.appendChild(botOutputVideoElement);
+}
+
+function turnOnMicAndCamera() {
+    // Click microphone button to turn it on
+    const microphoneButton = document.querySelector('button[aria-label="Turn on microphone"]');
+    if (microphoneButton) {
+        console.log("Clicking the microphone button to turn it on");
+        microphoneButton.click();
+    } else {
+        console.log("Microphone button not found");
+    }
+
+    // Click camera button to turn it on
+    const cameraButton = document.querySelector('button[aria-label="Turn on camera"]');
+    if (cameraButton) {
+        console.log("Clicking the camera button to turn it on");
+        cameraButton.click();
+    } else {
+        console.log("Camera button not found");
+    }
+}
+
+function turnOffMicAndCamera() {
+    // Click microphone button to turn it on
+    const microphoneButton = document.querySelector('button[aria-label="Turn off microphone"]');
+    if (microphoneButton) {
+        console.log("Clicking the microphone button to turn it off");
+        microphoneButton.click();
+    } else {
+        console.log("Microphone off button not found");
+    }
+
+    // Click camera button to turn it on
+    const cameraButton = document.querySelector('button[aria-label="Turn off camera"]');
+    if (cameraButton) {
+        console.log("Clicking the camera button to turn it off");
+        cameraButton.click();
+    } else {
+        console.log("Camera off button not found");
+    }
 }
 
 function playVideoThroughBot() {
@@ -1885,26 +1927,10 @@ function playVideoThroughBot() {
 
         botOutputVideoElementCaptureStream = botOutputVideoElement.captureStream();
         
-        // Click microphone button to turn it on
-        const microphoneButton = document.querySelector('button[aria-label="Turn on microphone"]');
-        if (microphoneButton) {
-            console.log("Clicking the microphone button to turn it on");
-            microphoneButton.click();
-        } else {
-            console.log("Microphone button not found");
-        }
-        
-        // Click camera button to turn it on
-        const cameraButton = document.querySelector('button[aria-label="Turn on camera"]');
-        if (cameraButton) {
-            console.log("Clicking the camera button to turn it on");
-            cameraButton.click();
-        } else {
-            console.log("Camera button not found");
-        }
+        turnOnMicAndCamera();
     }, { once: true }); // Use {once: true} to ensure the event only fires once
 }
-let didAudioPlayBefore = false;
+
 navigator.mediaDevices.getUserMedia = function(constraints) {
     return _getUserMedia.call(navigator.mediaDevices, constraints)
       .then(originalStream => {
@@ -1921,10 +1947,9 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
             newStream.addTrack(botOutputVideoElementCaptureStream.getVideoTracks()[0]);
         }
 
-        if (constraints.audio && botOutputVideoElementCaptureStream && !didAudioPlayBefore) {
+        if (constraints.audio && botOutputVideoElementCaptureStream) {
             console.log("Adding audio track", botOutputVideoElementCaptureStream.getAudioTracks()[0]);
             newStream.addTrack(botOutputVideoElementCaptureStream.getAudioTracks()[0]);
-            //didAudioPlayBefore = true;
         }
   
         return newStream;
@@ -2066,17 +2091,17 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
       throw err;
     });
 };
-
+*/
 // Add timeout to play video after 60 seconds, then repeat every 180 seconds
 document.addEventListener('DOMContentLoaded', () => {
     // Initial play after 60 seconds
     setTimeout(() => {
-        window.playVideoInCanvas();
+        playVideoThroughBot();
         
         // Set up interval to play every 180 seconds after the first play
         setInterval(() => {
-            window.playVideoInCanvas();
+            playVideoThroughBot();
         }, 180000); // 180 seconds = 180000 milliseconds
     }, 60000); // 60 seconds
-});*/
+});
 
