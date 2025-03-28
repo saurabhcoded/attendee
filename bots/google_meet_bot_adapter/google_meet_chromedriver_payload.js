@@ -1836,7 +1836,7 @@ let botOutputVideoElement = null;
 let videoSource = null;
 let botOutputVideoElementCaptureStream = null;
 
-let audioContext = null;
+let audioContextForBotOutput = null;
 let gainNode = null;
 let destination = null;
 let videoToPlayThroughBot = null;
@@ -1947,9 +1947,43 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
             newStream.addTrack(botOutputVideoElementCaptureStream.getVideoTracks()[0]);
         }
 
+        /*
         if (constraints.audio && botOutputVideoElementCaptureStream) {
             console.log("Adding audio track", botOutputVideoElementCaptureStream.getAudioTracks()[0]);
             newStream.addTrack(botOutputVideoElementCaptureStream.getAudioTracks()[0]);
+        }*/
+
+        console.log("constraints.audio", constraints.audio);
+        console.log("audioContextForBotOutput", audioContextForBotOutput);
+
+        // If audio is requested, add our fake audio track
+        if (constraints.audio && !audioContextForBotOutput && botOutputVideoElement) {  // Only create once
+            // Create AudioContext and nodes
+            audioContextForBotOutput = new AudioContext();
+            gainNode = audioContextForBotOutput.createGain();
+            destination = audioContextForBotOutput.createMediaStreamDestination();
+
+            // Set initial gain
+            gainNode.gain.value = 1.0;
+
+            // Connect gain node to both destinations
+            gainNode.connect(destination);
+            gainNode.connect(audioContextForBotOutput.destination);  // For local monitoring
+
+            // Store the audio track in window scope
+            window.botAudioTrack = destination.stream.getAudioTracks()[0];
+            newStream.addTrack(window.botAudioTrack);
+            console.log("Adding audio track", window.botAudioTrack);
+        } else if (constraints.audio && botOutputVideoElement) {
+            // Reuse existing audio track
+            newStream.addTrack(window.botAudioTrack);
+            console.log("Adding audio track2", window.botAudioTrack);
+        }
+
+        if (botOutputVideoElement && audioContextForBotOutput && !videoSource) {
+            videoSource = audioContextForBotOutput.createMediaElementSource(botOutputVideoElement);
+            videoSource.connect(gainNode);
+            console.log('connected video source to gain node');
         }
   
         return newStream;
@@ -2091,7 +2125,7 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
       throw err;
     });
 };
-*/
+
 // Add timeout to play video after 60 seconds, then repeat every 180 seconds
 document.addEventListener('DOMContentLoaded', () => {
     // Initial play after 60 seconds
@@ -2103,5 +2137,5 @@ document.addEventListener('DOMContentLoaded', () => {
             playVideoThroughBot();
         }, 180000); // 180 seconds = 180000 milliseconds
     }, 60000); // 60 seconds
-});
+});*/
 
