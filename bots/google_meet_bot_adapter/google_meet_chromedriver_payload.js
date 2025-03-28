@@ -1840,6 +1840,7 @@ let audioContextForBotOutput = null;
 let gainNode = null;
 let destination = null;
 let videoToPlayThroughBot = null;
+let botOutputAudioTrack = null;
 
 function addBotOutputVideoElement(url) {
     // Disconnect previous video source if it exists
@@ -1947,43 +1948,29 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
             newStream.addTrack(botOutputVideoElementCaptureStream.getVideoTracks()[0]);
         }
 
-        /*
-        if (constraints.audio && botOutputVideoElementCaptureStream) {
-            console.log("Adding audio track", botOutputVideoElementCaptureStream.getAudioTracks()[0]);
-            newStream.addTrack(botOutputVideoElementCaptureStream.getAudioTracks()[0]);
-        }*/
-
-        console.log("constraints.audio", constraints.audio);
-        console.log("audioContextForBotOutput", audioContextForBotOutput);
-
         // If audio is requested, add our fake audio track
-        if (constraints.audio && !audioContextForBotOutput && botOutputVideoElement) {  // Only create once
-            // Create AudioContext and nodes
-            audioContextForBotOutput = new AudioContext();
-            gainNode = audioContextForBotOutput.createGain();
-            destination = audioContextForBotOutput.createMediaStreamDestination();
+        if (constraints.audio) {  // Only create once
+            if (!audioContextForBotOutput) {
+                // Create AudioContext and nodes
+                audioContextForBotOutput = new AudioContext();
+                gainNode = audioContextForBotOutput.createGain();
+                destination = audioContextForBotOutput.createMediaStreamDestination();
 
-            // Set initial gain
-            gainNode.gain.value = 1.0;
+                // Set initial gain
+                gainNode.gain.value = 1.0;
 
-            // Connect gain node to both destinations
-            gainNode.connect(destination);
-            gainNode.connect(audioContextForBotOutput.destination);  // For local monitoring
+                // Connect gain node to both destinations
+                gainNode.connect(destination);
+                gainNode.connect(audioContextForBotOutput.destination);  // For local monitoring
 
-            // Store the audio track in window scope
-            window.botAudioTrack = destination.stream.getAudioTracks()[0];
-            newStream.addTrack(window.botAudioTrack);
-            console.log("Adding audio track", window.botAudioTrack);
-        } else if (constraints.audio && botOutputVideoElement) {
-            // Reuse existing audio track
-            newStream.addTrack(window.botAudioTrack);
-            console.log("Adding audio track2", window.botAudioTrack);
+                botOutputAudioTrack = destination.stream.getAudioTracks()[0];
+            }
+            newStream.addTrack(botOutputAudioTrack);
         }
 
         if (botOutputVideoElement && audioContextForBotOutput && !videoSource) {
             videoSource = audioContextForBotOutput.createMediaElementSource(botOutputVideoElement);
             videoSource.connect(gainNode);
-            console.log('connected video source to gain node');
         }
   
         return newStream;
