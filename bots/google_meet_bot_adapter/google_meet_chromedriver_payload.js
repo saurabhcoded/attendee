@@ -1917,8 +1917,14 @@ function turnOffMicAndCamera() {
     }
 }
 
+let numruns = 0;
 function playVideoThroughBot() {
-    videoUrl = 'https://attendee-public-assets.s3.us-east-1.amazonaws.com/testfudge_high_res.mp4';
+    if (numruns % 2 == 0) {
+        videoUrl = 'https://attendee-public-assets.s3.us-east-1.amazonaws.com/testmumps_high_res.mp4';
+    } else {
+        videoUrl = 'https://attendee-public-assets.s3.us-east-1.amazonaws.com/testfudge_high_res.mp4';
+    }
+    numruns++;
 
     addBotOutputVideoElement(videoUrl);
     
@@ -1981,138 +1987,6 @@ navigator.mediaDevices.getUserMedia = function(constraints) {
       });
   };
 
-
-/*
-navigator.mediaDevices.getUserMedia = function(constraints) {
-  return _getUserMedia.call(navigator.mediaDevices, constraints)
-    .then(originalStream => {
-      console.log("Intercepted getUserMedia:", constraints);
-
-      // Stop any original tracks so we don't actually capture real mic/cam
-      originalStream.getTracks().forEach(t => t.stop());
-
-      // Create a new MediaStream to return
-      const newStream = new MediaStream();
-
-      // If video is requested, add our fake video track
-      if (constraints.video) {
-        // Create a canvas for our fake video
-        if (!botOutputCanvas) {
-            botOutputCanvas = document.createElement('canvas');
-            const ctx = botOutputCanvas.getContext('2d');
-
-            botOutputCanvas.width = 640;
-            botOutputCanvas.height = 480;
-
-            function drawPattern() {
-                ctx.fillStyle = 'black';
-                ctx.fillRect(0, 0, botOutputCanvas.width, botOutputCanvas.height);
-                
-                // If we have a video element, draw it
-                if (botOutputVideoElement && !botOutputVideoElement.ended && !botOutputVideoElement.paused) {
-                    ctx.drawImage(botOutputVideoElement, 0, 0, botOutputCanvas.width, botOutputCanvas.height);
-                }
-            }
-
-            // Add method to play video from URL
-            window.playVideoInCanvas = function(url) {
-                url = 'https://attendee-public-assets.s3.us-east-1.amazonaws.com/testfudge_high_res.mp4';
-                
-                // Disconnect previous video source if it exists
-                if (videoSource) {
-                    videoSource.disconnect();
-                    videoSource = null;
-                }
-
-                // Remove any existing video element
-                if (botOutputVideoElement) {
-                    botOutputVideoElement.remove();
-                }
-
-                // Create new video element
-                botOutputVideoElement = document.createElement('video');
-                botOutputVideoElement.style.display = 'none';
-                botOutputVideoElement.src = url;
-                botOutputVideoElement.crossOrigin = 'anonymous';
-                botOutputVideoElement.loop = false;
-                botOutputVideoElement.autoplay = true;
-
-                // Create and connect video source when video is ready
-                botOutputVideoElement.addEventListener('canplay', () => {
-                    if (audioContext && gainNode) {
-                        videoSource = audioContext.createMediaElementSource(botOutputVideoElement);
-                        videoSource.connect(gainNode);
-                        console.log('Video source connected to gain node');
-                    }
-                });
-
-                // Clean up when video ends
-                botOutputVideoElement.addEventListener('ended', () => {
-                    if (videoSource) {
-                        videoSource.disconnect();
-                        videoSource = null;
-                    }
-                    botOutputVideoElement.remove();
-                    botOutputVideoElement = null;
-                });
-
-                document.body.appendChild(botOutputVideoElement);
-            };
-
-            drawPatternInterval = setInterval(drawPattern, 1000/30);
-        }
-
-        // Create a video track from the canvas
-        const videoStream = botOutputCanvas.captureStream(30);
-        const [videoTrack] = videoStream.getVideoTracks();
-        
-        // Add cleanup on track end
-        videoTrack.addEventListener('ended', () => {
-            console.log('Video track in botOutputCanvas ended');
-            if (drawPatternInterval) {
-                clearInterval(drawPatternInterval);
-                drawPatternInterval = null;
-            }
-            if (botOutputCanvas) {
-                botOutputCanvas = null;
-            }
-        });
-
-        newStream.addTrack(videoTrack);
-      }
-
-
-
-      // If audio is requested, add our fake audio track
-      if (constraints.audio && !audioContext) {  // Only create once
-        // Create AudioContext and nodes
-        audioContext = new AudioContext();
-        gainNode = audioContext.createGain();
-        destination = audioContext.createMediaStreamDestination();
-
-        // Set initial gain
-        gainNode.gain.value = 1.0;
-
-        // Connect gain node to both destinations
-        gainNode.connect(destination);
-        gainNode.connect(audioContext.destination);  // For local monitoring
-
-        // Store the audio track in window scope
-        window.botAudioTrack = destination.stream.getAudioTracks()[0];
-        newStream.addTrack(window.botAudioTrack);
-      } else if (constraints.audio) {
-        // Reuse existing audio track
-        newStream.addTrack(window.botAudioTrack);
-      }
-
-      return newStream;
-    })
-    .catch(err => {
-      console.error("Error in custom getUserMedia override:", err);
-      throw err;
-    });
-};
-
 // Add timeout to play video after 60 seconds, then repeat every 180 seconds
 document.addEventListener('DOMContentLoaded', () => {
     // Initial play after 60 seconds
@@ -2124,5 +1998,5 @@ document.addEventListener('DOMContentLoaded', () => {
             playVideoThroughBot();
         }, 180000); // 180 seconds = 180000 milliseconds
     }, 60000); // 60 seconds
-});*/
+});
 
