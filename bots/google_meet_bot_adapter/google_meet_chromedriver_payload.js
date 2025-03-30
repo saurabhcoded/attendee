@@ -20,15 +20,20 @@ class StyleManager {
         let frameLayout = this.computeFrameLayout(mainElement);
 
         // Set up a timer to update the frame layout every 500ms
+        let layoutUpdateTicker = 0;
         this.layoutUpdateInterval = setInterval(() => {
+            layoutUpdateTicker++;
             try {
-                frameLayout = this.computeFrameLayout(mainElement);
-                this.syncCaptureCanvasElements(frameLayout);
+                this.makeSureElementsAreInSync(frameLayout);
+                if (layoutUpdateTicker % 10 === 0) {
+                    frameLayout = this.computeFrameLayout(mainElement);
+                    this.syncCaptureCanvasElements(frameLayout, layoutUpdateTicker);
+                }
             }
             catch (error) {
                 console.error('Error updating frame layout', error);
             }
-        }, 500);
+        }, 10);
 
         // Add keyboard listener for toggling canvas visibility
         document.addEventListener('keydown', this.handleKeyDown.bind(this));
@@ -41,6 +46,32 @@ class StyleManager {
         if (event.key === 's') {
             this.toggleCaptureCanvasVisibility();
         }
+    }
+
+    makeSureElementsAreInSync(frameLayout) {
+        frameLayout.forEach(({ element, ssrc, videoWidth }) => {
+            let captureCanvasElements = this.videoElementToCaptureCanvasElements.get(element);
+            if (!captureCanvasElements) {
+                return;
+            }
+
+            let misMatch = false;
+            if (ssrc && ssrc !== this.getSSRCFromVideoElement(element)) {
+                misMatch = true;
+            }
+            if (videoWidth && videoWidth !== element.videoWidth) {
+                misMatch = true;
+            }
+            if (!element.checkVisibility()) {
+                misMatch = true;
+            }
+            if (misMatch) {
+                captureCanvasElements.captureCanvasVideoElement.style.display = 'none';
+            }
+            else {
+                captureCanvasElements.captureCanvasVideoElement.style.display = '';
+            }
+        });
     }
 
     toggleCaptureCanvasVisibility() {
@@ -60,60 +91,62 @@ class StyleManager {
         }
     }
 
-    syncCaptureCanvasElements(frameLayout) {
-        frameLayout.forEach(({ element, dst_rect, label }) => {
-            let captureCanvasElements = this.videoElementToCaptureCanvasElements.get(element);
-            if (!captureCanvasElements) {
-                let captureCanvasContainerElement = document.createElement('div');
-                captureCanvasContainerElement.style.position = 'absolute';
-                captureCanvasContainerElement.style.padding = '0';
-                captureCanvasContainerElement.style.margin = '0';
-                captureCanvasContainerElement.style.border = 'none';
-                captureCanvasContainerElement.style.outline = 'none';
-                captureCanvasContainerElement.style.boxShadow = 'none';
-                captureCanvasContainerElement.style.background = 'none';
-                
+    syncCaptureCanvasElements(frameLayout, layoutUpdateTicker) {
+        if (layoutUpdateTicker % 50 === 0) {
+            frameLayout.forEach(({ element, dst_rect, label }) => {
+                let captureCanvasElements = this.videoElementToCaptureCanvasElements.get(element);
+                if (!captureCanvasElements) {
+                    let captureCanvasContainerElement = document.createElement('div');
+                    captureCanvasContainerElement.style.position = 'absolute';
+                    captureCanvasContainerElement.style.padding = '0';
+                    captureCanvasContainerElement.style.margin = '0';
+                    captureCanvasContainerElement.style.border = 'none';
+                    captureCanvasContainerElement.style.outline = 'none';
+                    captureCanvasContainerElement.style.boxShadow = 'none';
+                    captureCanvasContainerElement.style.background = 'none';
+                    
 
-                let captureCanvasVideoElement = document.createElement('video');
-                captureCanvasVideoElement.srcObject = element.srcObject;
-                captureCanvasVideoElement.autoplay = true;
-                captureCanvasVideoElement.style.width = '100%';
-                captureCanvasVideoElement.style.height = '100%';
-                captureCanvasVideoElement.style.objectFit = 'contain';
-                captureCanvasVideoElement.style.position = 'absolute';
-                captureCanvasVideoElement.style.top = '0';
-                captureCanvasVideoElement.style.left = '0';
+                    let captureCanvasVideoElement = document.createElement('video');
+                    captureCanvasVideoElement.srcObject = element.srcObject;
+                    captureCanvasVideoElement.autoplay = true;
+                    captureCanvasVideoElement.style.width = '100%';
+                    captureCanvasVideoElement.style.height = '100%';
+                    captureCanvasVideoElement.style.objectFit = 'contain';
+                    captureCanvasVideoElement.style.position = 'absolute';
+                    captureCanvasVideoElement.style.top = '0';
+                    captureCanvasVideoElement.style.left = '0';
 
-                captureCanvasContainerElement.appendChild(captureCanvasVideoElement);
+                    captureCanvasContainerElement.appendChild(captureCanvasVideoElement);
 
-                let captureCanvasLabelElement = document.createElement('div');
-                captureCanvasLabelElement.style.backgroundColor = 'rgba(0, 0, 0, 0.35)';
-                captureCanvasLabelElement.style.color = 'white';
-                captureCanvasLabelElement.style.fontSize = '14px';
-                captureCanvasLabelElement.style.textAlign = 'left';
-                captureCanvasLabelElement.style.lineHeight = '1.2';
-                captureCanvasLabelElement.style.padding = '3px 5px';
-                captureCanvasLabelElement.style.display = 'inline-block';
-                captureCanvasLabelElement.style.position = 'absolute';
-                captureCanvasLabelElement.style.bottom = '3px';
-                captureCanvasLabelElement.style.left = '5px';
-                captureCanvasLabelElement.textContent = label;               
+                    let captureCanvasLabelElement = document.createElement('div');
+                    captureCanvasLabelElement.style.backgroundColor = 'rgba(0, 0, 0, 0.35)';
+                    captureCanvasLabelElement.style.color = 'white';
+                    captureCanvasLabelElement.style.fontSize = '14px';
+                    captureCanvasLabelElement.style.textAlign = 'left';
+                    captureCanvasLabelElement.style.lineHeight = '1.2';
+                    captureCanvasLabelElement.style.padding = '3px 5px';
+                    captureCanvasLabelElement.style.display = 'inline-block';
+                    captureCanvasLabelElement.style.position = 'absolute';
+                    captureCanvasLabelElement.style.bottom = '3px';
+                    captureCanvasLabelElement.style.left = '5px';
+                    captureCanvasLabelElement.textContent = label;               
 
-                captureCanvasContainerElement.appendChild(captureCanvasLabelElement);                
-                this.captureCanvas.appendChild(captureCanvasContainerElement);
-                captureCanvasElements = {
-                    captureCanvasVideoElement,
-                    captureCanvasLabelElement,
-                    captureCanvasContainerElement
+                    captureCanvasContainerElement.appendChild(captureCanvasLabelElement);                
+                    this.captureCanvas.appendChild(captureCanvasContainerElement);
+                    captureCanvasElements = {
+                        captureCanvasVideoElement,
+                        captureCanvasLabelElement,
+                        captureCanvasContainerElement
+                    }
+                    this.videoElementToCaptureCanvasElements.set(element, captureCanvasElements);
                 }
-                this.videoElementToCaptureCanvasElements.set(element, captureCanvasElements);
-            }
 
-            captureCanvasElements.captureCanvasContainerElement.style.left = `${dst_rect.left}px`;
-            captureCanvasElements.captureCanvasContainerElement.style.top = `${dst_rect.top}px`;
-            captureCanvasElements.captureCanvasContainerElement.style.width = `${dst_rect.width}px`;
-            captureCanvasElements.captureCanvasContainerElement.style.height = `${dst_rect.height}px`;
-        });
+                captureCanvasElements.captureCanvasContainerElement.style.left = `${dst_rect.left}px`;
+                captureCanvasElements.captureCanvasContainerElement.style.top = `${dst_rect.top}px`;
+                captureCanvasElements.captureCanvasContainerElement.style.width = `${dst_rect.width}px`;
+                captureCanvasElements.captureCanvasContainerElement.style.height = `${dst_rect.height}px`;
+            });
+        }
 
         // For each element in videoElementToCaptureCanvasElements that was not in the frameLayout, remove it
         this.videoElementToCaptureCanvasElements.forEach((captureCanvasElements, videoElement) => {
