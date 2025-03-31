@@ -10,6 +10,8 @@ class StyleManager {
         this.audioTracks = [];
         this.silenceThreshold = 0.0;
         this.silenceCheckInterval = null;
+        this.numFramesSynced = 0;
+        this.renderState = "unsynced";
     }
 
     addAudioTrack(audioTrack) {
@@ -96,20 +98,26 @@ class StyleManager {
         // Using the contents of the main element, compute the layout of the frame we want to render
         let frameLayout = this.computeFrameLayout(this.mainElement);
 
-        // Set up a timer to update the frame layout every 250ms
-        this.layoutUpdateInterval = setInterval(() => {
-            try {
-                frameLayout = this.computeFrameLayout(this.mainElement);
-                this.syncCaptureCanvasElements(frameLayout);
-            }
-            catch (error) {
-                console.error('Error updating frame layout', error);
-            }
-        }, 500);
-
         const outerThis = this;
+        let lastFrameLayoutComputationTime = 0;
 
         function beforeFrameRenders() {
+            try {
+                if (performance.now() - lastFrameLayoutComputationTime > 250)
+                {
+                    frameLayout = outerThis.computeFrameLayout(outerThis.mainElement);
+                    lastFrameLayoutComputationTime = performance.now();
+                    if (outerThis.renderState === "synced")
+                    {
+                        outerThis.syncCaptureCanvasElements(frameLayout);
+                        outerThis.updateElementsForRenderStateChange(frameLayout);                    
+                    }
+                }
+            }
+            catch (error) {
+                console.error('Error computing frame layout', error);
+            }
+
             try {
                 outerThis.makeSureElementsAreInSync(frameLayout);
             }
@@ -131,24 +139,9 @@ class StyleManager {
         console.log('Started StyleManager');
     }
 
-    makeSureElementsAreInSync(frameLayout) {
-        frameLayout.forEach(({ element, ssrc, videoWidth }) => {
-            let captureCanvasElements = this.videoElementToCaptureCanvasElements.get(element);
-            if (!captureCanvasElements) {
-                return;
-            }
-
-            let misMatch = false;
-            if (ssrc && ssrc !== this.getSSRCFromVideoElement(element)) {
-                misMatch = true;
-            }
-            if (videoWidth && videoWidth !== element.videoWidth) {
-                misMatch = true;
-            }
-            if (!element.checkVisibility()) {
-                misMatch = true;
-            }
-            if (misMatch) {
+    updateElementsForRenderStateChange(captureCanvasElements) {
+        this.videoElementToCaptureCanvasElements.forEach((captureCanvasElements) => {
+            if (this.renderState === "unsynced") {
                 if (captureCanvasElements.captureCanvasVideoElement.style.display !== 'none') {
                     // use getclientrects to get the width and height of the container and the canvas
                     const containerRect = captureCanvasElements.captureCanvasContainerElement.getBoundingClientRect();
@@ -197,6 +190,44 @@ class StyleManager {
                 captureCanvasElements.captureCanvasVideoElement.style.display = '';
             }
         });            
+    }
+
+    makeSureElementsAreInSync(frameLayout) {
+        const anyMisMatch = frameLayout.some(({ element, ssrc, videoWidth }) => {
+            let captureCanvasElements = this.videoElementToCaptureCanvasElements.get(element);
+            if (!captureCanvasElements) {
+                return;
+            }
+
+            let misMatch = false;
+            if (ssrc && ssrc !== this.getSSRCFromVideoElement(element)) {
+                misMatch = true;
+            }
+            if (videoWidth && videoWidth !== element.videoWidth) {
+                misMatch = true;
+            }
+            if (!element.checkVisibility()) {
+                misMatch = true;
+            }
+            
+            return misMatch;
+        });
+        
+        if (!anyMisMatch) {
+            this.numFramesSynced++;
+        }
+        if (anyMisMatch) {
+            this.numFramesSynced = 0;
+        }
+
+        if (anyMisMatch && this.renderState === "synced") {
+            this.renderState = "unsynced";
+            this.updateElementsForRenderStateChange(frameLayout);
+        }
+
+        if (!anyMisMatch && this.renderState === "unsynced" && this.numFramesSynced > 10) {
+            this.renderState = "synced";
+        }
     }
 
     handleKeyDown(event) {
