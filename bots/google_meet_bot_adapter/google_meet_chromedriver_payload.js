@@ -175,7 +175,7 @@ class StyleManager {
                     }
                     
                     // Clear canvas and draw with proper dimensions
-                    ctx.fillStyle = 'black';
+                    ctx.fillStyle = 'green';
                     ctx.fillRect(0, 0, containerRect.width, containerRect.height);
                     ctx.drawImage(videoElement, drawX, drawY, drawWidth, drawHeight);
                     
@@ -199,18 +199,20 @@ class StyleManager {
                 return;
             }
 
-            let misMatch = false;
             if (ssrc && ssrc !== this.getSSRCFromVideoElement(element)) {
-                misMatch = true;
+                return true;
             }
             if (videoWidth && videoWidth !== element.videoWidth) {
-                misMatch = true;
+                return true;
             }
             if (!element.checkVisibility()) {
-                misMatch = true;
+                return true;
+            }
+            if (ssrc &&this.getSSRCFromVideoElementByDataAttribute(element) !== ssrc) {
+                return true;
             }
             
-            return misMatch;
+            return false;
         });
         
         if (!anyMisMatch) {
@@ -225,7 +227,7 @@ class StyleManager {
             this.updateElementsForRenderStateChange(frameLayout);
         }
 
-        if (!anyMisMatch && this.renderState === "unsynced" && this.numFramesSynced > 10) {
+        if (!anyMisMatch && this.renderState === "unsynced" && this.numFramesSynced > 5) {
             this.renderState = "synced";
         }
     }
@@ -328,11 +330,17 @@ class StyleManager {
         // For each element in videoElementToCaptureCanvasElements that was not in the frameLayout, remove it
         this.videoElementToCaptureCanvasElements.forEach((captureCanvasElements, videoElement) => {
             if (!frameLayout.some(frameLayoutElement => frameLayoutElement.element === videoElement)) {
-                // remove after a 16 ms timeout to eliminate flicker
-                setTimeout(() => {
+                if (window.initialData.recordingView === 'speaker_view') {
+                    // remove after a 16 ms timeout to eliminate flicker
+                    setTimeout(() => {
+                        this.captureCanvas.removeChild(captureCanvasElements.captureCanvasContainerElement);
+                        this.videoElementToCaptureCanvasElements.delete(videoElement);
+                    }, 16 * 3);                
+                }
+                else {
                     this.captureCanvas.removeChild(captureCanvasElements.captureCanvasContainerElement);
                     this.videoElementToCaptureCanvasElements.delete(videoElement);
-                }, 16);                
+                }
             }
         });
     }
@@ -416,6 +424,10 @@ class StyleManager {
     getSSRCFromVideoElement(videoElement) {
         const track_id = videoElement.srcObject?.getTracks().find(track => track.kind === 'video')?.id;
         return this.videoTrackIdToSSRC.get(track_id);
+    }
+
+    getSSRCFromVideoElementByDataAttribute(videoElement) {
+        return videoElement.parentElement?.getAttribute('data-ssrc');
     }
 
     getVideoElementsWithInfo(mainElement, activeSpeakerElementsWithInfo) {
