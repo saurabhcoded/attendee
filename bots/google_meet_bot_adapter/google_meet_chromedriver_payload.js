@@ -12,6 +12,7 @@ class StyleManager {
         this.silenceCheckInterval = null;
         this.numFramesSynced = 0;
         this.renderState = "unsynced";
+        this.renderStateUnsyncReason = "";
         this.trackToVideoElement = new Map();
     }
 
@@ -93,7 +94,7 @@ class StyleManager {
             return;
         }
 
-        this.hideAllNonCaptureCanvasElements();
+        //this.hideAllNonCaptureCanvasElements();
         this.captureCanvas = this.createCaptureCanvas();
 
         // Using the contents of the main element, compute the layout of the frame we want to render
@@ -125,6 +126,7 @@ class StyleManager {
             catch (error) {
                 console.error('Error making sure elements are in sync', error);
             }
+            outerThis.updateveLabels();
             // Request the next frame
             requestAnimationFrame(beforeFrameRenders);
         }
@@ -138,6 +140,23 @@ class StyleManager {
         this.startSilenceDetection();
 
         console.log('Started StyleManager');
+    }
+
+    updateveLabels() {
+        this.videoElementToCaptureCanvasElements.forEach((captureCanvasElements) => {
+            const currentLabel = captureCanvasElements.captureCanvasLabelElement.textContent;
+            const pipeIndex = currentLabel.indexOf(' | ');
+            
+            if (pipeIndex !== -1) {
+                // Keep everything to the right of the pipe character
+                const rightSideContent = currentLabel.substring(pipeIndex);
+                // Replace left side with new random string
+                captureCanvasElements.captureCanvasLabelElement.textContent = this.renderState + ',' + this.renderStateUnsyncReason + ', ' + captureCanvasElements.captureCanvasVideoElement.readyState + rightSideContent;
+            } else {
+                // If no pipe character found, just replace the whole thing
+                captureCanvasElements.captureCanvasLabelElement.textContent = this.renderState + ',' + this.renderStateUnsyncReason + ', ' + captureCanvasElements.captureCanvasVideoElement.readyState;
+            }
+        });
     }
 
     updateElementsForRenderStateChange(captureCanvasElements) {
@@ -186,7 +205,9 @@ class StyleManager {
             }
             else {
                 if (captureCanvasElements.captureCanvasVideoElement.style.display !== '') {
-                    captureCanvasElements.captureCanvasCanvasElement.style.display = 'none';
+                    setTimeout(() => {
+                        captureCanvasElements.captureCanvasCanvasElement.style.display = 'none';
+                    }, 32);  
                }
                 captureCanvasElements.captureCanvasVideoElement.style.display = '';
             }
@@ -194,6 +215,7 @@ class StyleManager {
     }
 
     makeSureElementsAreInSync(frameLayout) {
+        this.renderStateUnsyncReason = "";
         const anyMisMatch = frameLayout.some(({ element, ssrc, videoWidth }) => {
             let captureCanvasElements = this.videoElementToCaptureCanvasElements.get(element);
             if (!captureCanvasElements) {
@@ -201,15 +223,19 @@ class StyleManager {
             }
 
             if (ssrc && ssrc !== this.getSSRCFromVideoElement(element)) {
+                this.renderStateUnsyncReason = "SSRC mismatch";
                 return true;
             }
-            if (videoWidth && videoWidth !== element.videoWidth) {
-                return true;
-            }
+            //if (videoWidth && videoWidth !== element.videoWidth) {
+            //    this.renderStateUnsyncReason = "Video width mismatch";
+            //    return true;
+            //}
             if (!element.checkVisibility()) {
+                this.renderStateUnsyncReason = "Element not visible";
                 return true;
             }
             if (ssrc &&this.getSSRCFromVideoElementByDataAttribute(element) !== ssrc) {
+                this.renderStateUnsyncReason = "SSRC mismatch v2";
                 return true;
             }
             
@@ -279,6 +305,7 @@ class StyleManager {
                 captureCanvasVideoElement.style.height = '100%';
                 captureCanvasVideoElement.style.objectFit = 'contain';
                 captureCanvasVideoElement.style.position = 'absolute';
+                captureCanvasVideoElement.style.border = 'yellow 2px dashed';
                 captureCanvasVideoElement.style.top = '0';
                 captureCanvasVideoElement.style.left = '0';
 
@@ -296,7 +323,7 @@ class StyleManager {
                 captureCanvasLabelElement.style.bottom = '3px';
                 captureCanvasLabelElement.style.left = '5px';
                 captureCanvasLabelElement.style.zIndex = '10'; // Add this line to ensure label is above other elements
-                captureCanvasLabelElement.textContent = label + ' ' + Math.random().toString(36).substring(2, 15);
+                captureCanvasLabelElement.textContent = ' | ' + label + ' ' + Math.random().toString(36).substring(2, 15);
                 captureCanvasContainerElement.appendChild(captureCanvasLabelElement);    
                 
                 // Add event listener for when video is paused
@@ -336,7 +363,8 @@ class StyleManager {
                 captureCanvasCanvasElement.style.top = '0';
                 captureCanvasCanvasElement.style.left = '0';
                 captureCanvasCanvasElement.style.border = 'none';
-                captureCanvasCanvasElement.style.display = 'none';                
+                captureCanvasCanvasElement.style.display = 'none';  
+                captureCanvasCanvasElement.style.zIndex = '9';              
                 captureCanvasContainerElement.appendChild(captureCanvasCanvasElement);
 
                 this.captureCanvas.appendChild(captureCanvasContainerElement);
@@ -404,12 +432,12 @@ class StyleManager {
         const canvas = document.createElement('div');
         canvas.classList.add('captureCanvas');
         canvas.style.width = '1920px';
-        canvas.style.height = '1080px';
+        canvas.style.height = '240px';
         canvas.style.backgroundColor = 'black';
         canvas.style.position = 'fixed';
         canvas.style.top = '0';
         canvas.style.left = '0';
-        //canvas.style.zIndex = '9999';
+        canvas.style.zIndex = '9999';
         document.body.appendChild(canvas);
         return canvas;
     }
@@ -505,7 +533,7 @@ class StyleManager {
                 is_screen_share: Boolean(user?.parentDeviceId),
                 is_active_speaker: activeSpeakerElementsWithInfo?.[0]?.participant_id === user?.deviceId,
             };
-        }).filter(video => video.ssrc && video.user && !video.paused && video.bounding_rect.width > 0 && video.bounding_rect.height > 0);
+        }).filter(video => video.ssrc && video.user && !video.paused && video.bounding_rect.width > 0 && video.bounding_rect.height > 0 && video.element.readyState === 4);
         const largestContainerBoundingRectArea = results.reduce((max, video) => {
             return Math.max(max, video.container_bounding_rect.width * video.container_bounding_rect.height);
         }, 0);
@@ -650,7 +678,7 @@ class StyleManager {
         }
 
         const canvasWidth = 1920;
-        const canvasHeight = 1080;
+        const canvasHeight = 240;
         let minX = Infinity;
         let minY = Infinity;
         let maxX = 0;
