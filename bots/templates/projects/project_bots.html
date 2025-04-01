@@ -1,6 +1,4 @@
-{% extends 'projects/sidebar.html' %}
-
-{% block content %}
+{% extends 'projects/sidebar.html' %} {% block content %}
 <style>
     .meeting-url {
         max-width: 300px;
@@ -9,61 +7,124 @@
         white-space: nowrap;
         display: block;
     }
-    
+
     /* Updated styles for clickable rows */
     .clickable-row {
         cursor: pointer;
         transition: background-color 0.15s ease-in-out;
     }
+
     /* Apply hover effect to td elements */
     table tbody tr.clickable-row:hover td {
-        background-color: #f8f9fa;  /* Using Bootstrap's light gray */
+        background-color: #f8f9fa;
+        /* Using Bootstrap's light gray */
     }
 </style>
 
 <div class="container mt-4">
-    <h2 class="mb-4">Bots</h2>
-    
+    <div class="d-flex align-items-center justify-content-between">
+        <h2 class="mb-4">Bots</h2>
+        <!-- Button to Toggle Form -->
+        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#exampleModal">
+            Create Bot
+        </button>
+    </div>
+    <!-- Form to Create Bot -->
+    <div class="modal fade" id="exampleModal" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h1 class="modal-title fs-5" id="exampleModalLabel">Create new bot</h1>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="createbot" class="mb-4">
+                        <div class="mb-3">
+                            <label for="meeting_url" class="form-label">Meeting url</label>
+                            <input autocomplete="meeting_url" type="url" class="form-control" id="meeting_url" aria-describedby="meeting_urlHelp" />
+                            <div id="meeting_urlHelp" class="form-text">
+                                Add your zoom or google meet url here.
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="bot_name" class="form-label">Bot name</label>
+                            <input autocomplete="bot_name" type="text" class="form-control" id="bot_name" />
+                        </div>
+                        <button type="submit" class="btn btn-primary" onclick="createBotHandler()">Submit</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="table-responsive">
         {% if bots %}
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Meeting URL</th>
-                        <th>Status</th>
-                        <th>Created</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for bot in bots %}
-                    <tr class="clickable-row"
-                        hx-get="{% url 'projects:project-bot-detail' project.object_id bot.object_id %}"
-                        hx-select="#content"
-                        hx-target="#content"
-                        hx-swap="outerHTML"
-                        hx-push-url="true">
-                        <td>{{ bot.object_id }}</td>
-                        <td><span class="meeting-url" title="{{ bot.meeting_url }}">{{ bot.meeting_url }}</span></td>
-                        <td>
-                            <span class="badge {% if bot.state == BotStates.READY %}bg-warning{% elif bot.state == BotStates.FATAL_ERROR %}bg-danger{% elif bot.state == BotStates.ENDED %}bg-secondary{% else %}bg-success{% endif %}">
-                                {{ bot.get_state_display }}
-                                {% if bot.sub_state %}
-                                    - {{ bot.get_sub_state_display }}
-                                {% endif %}
-                            </span>
-                        </td>
-                        <td>{{ bot.created_at|date:"M d, Y H:i" }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Meeting URL</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for bot in bots %}
+                <tr class="clickable-row" hx-get="{% url 'projects:project-bot-detail' project.object_id bot.object_id %}" hx-select="#content"
+                    hx-target="#content" hx-swap="outerHTML" hx-push-url="true">
+                    <td>{{ bot.object_id }}</td>
+                    <td>
+                        <span class="meeting-url" title="{{ bot.meeting_url }}">{{ bot.meeting_url }}</span>
+                    </td>
+                    <td>
+                        <span
+                            class="badge {% if bot.state == BotStates.READY %}bg-warning{% elif bot.state == BotStates.FATAL_ERROR %}bg-danger{% elif bot.state == BotStates.ENDED %}bg-secondary{% else %}bg-success{% endif %}">
+                            {{ bot.get_state_display }} {% if bot.sub_state %} - {{ bot.get_sub_state_display }}
+                            {% endif %}
+                        </span>
+                    </td>
+                    <td>{{ bot.created_at|date:"M d, Y H:i" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
         {% else %}
-            <div class="alert alert-info" role="alert">
-                <i class="bi bi-info-circle me-2"></i>
-                No bots found. Use the API to create bots.
-            </div>
+        <div class="alert alert-info" role="alert">
+            <i class="bi bi-info-circle me-2"></i>
+            No bots found. Use the API to create bots.
+        </div>
         {% endif %}
     </div>
 </div>
-{% endblock %} 
+<script type="text/javascript">
+    async function createBotHandler() {
+        // Get form values
+        const apiToken = 'Token yiUhXtalBE0a28AF0pnwhrqMmAEWfG4I';
+        const meeting_url = document.getElementById("meeting_url").value;
+        const bot_name = document.getElementById("bot_name").value;
+        // API endpoint (replace with your actual API URL)
+        const apiUrl = "http://localhost:8000/api/v1/bots";
+        try {
+            const response = await fetch(apiUrl, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": apiToken
+                },
+                body: JSON.stringify({meeting_url, bot_name})
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+            const result = await response.json();
+            console.log("Bot Created:", result);
+            alert("Bot created successfully!");
+        } catch (error) {
+            console.error("Error creating bot:", error);
+            alert("Failed to create bot.");
+        }
+    }
+
+</script>
+{% endblock %}
