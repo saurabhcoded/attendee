@@ -12,6 +12,7 @@ class StyleManager {
         this.silenceCheckInterval = null;
         this.numFramesSynced = 0;
         this.renderState = "unsynced";
+        this.trackToVideoElement = new Map();
     }
 
     addAudioTrack(audioTrack) {
@@ -270,9 +271,10 @@ class StyleManager {
                 captureCanvasContainerElement.style.background = 'none';
                 
 
-                let captureCanvasVideoElement = document.createElement('video');
-                captureCanvasVideoElement.srcObject = element.srcObject;
-                captureCanvasVideoElement.autoplay = true;
+                let captureCanvasVideoElement = this.trackToVideoElement.get(element.srcObject.getTracks()[0]);
+                //captureCanvasVideoElement.srcObject = element.srcObject;
+                //captureCanvasVideoElement.autoplay = true;
+                //captureCanvasVideoElement.playsinline = true;
                 captureCanvasVideoElement.style.width = '100%';
                 captureCanvasVideoElement.style.height = '100%';
                 captureCanvasVideoElement.style.objectFit = 'contain';
@@ -294,9 +296,39 @@ class StyleManager {
                 captureCanvasLabelElement.style.bottom = '3px';
                 captureCanvasLabelElement.style.left = '5px';
                 captureCanvasLabelElement.style.zIndex = '10'; // Add this line to ensure label is above other elements
-                captureCanvasLabelElement.textContent = label;
+                captureCanvasLabelElement.textContent = label + ' ' + Math.random().toString(36).substring(2, 15);
                 captureCanvasContainerElement.appendChild(captureCanvasLabelElement);    
                 
+                // Add event listener for when video is paused
+                captureCanvasVideoElement.addEventListener('pause', () => {
+                    // Update the label with video dimensions
+                    const originalLabel = captureCanvasLabelElement.textContent;
+                    captureCanvasLabelElement.textContent = `${originalLabel} (VIDEO PAUSED)`;
+                });
+
+                // Add event listener for when video is ended
+                captureCanvasVideoElement.addEventListener('ended', () => {
+                    // Update the label with video dimensions
+                    const originalLabel = captureCanvasLabelElement.textContent;
+                    captureCanvasLabelElement.textContent = `${originalLabel} (VIDEO ENDED)`;
+                });
+
+                // Add event listener for when video metadata is loaded
+                captureCanvasVideoElement.addEventListener('playing', () => {
+                    // Update the label with video dimensions
+                    const originalLabel = captureCanvasLabelElement.textContent;
+                    const dimensions = `${captureCanvasVideoElement.videoWidth}x${captureCanvasVideoElement.videoHeight}`;
+                    captureCanvasLabelElement.textContent = `${originalLabel} (${dimensions})`;
+                });
+
+                // Add event listener for when track ends
+                const track = element.srcObject.getTracks()[0];
+                if (track) {
+                    track.addEventListener('ended', () => {
+                            captureCanvasLabelElement.textContent = `${captureCanvasLabelElement.textContent} (STOPPED)`;
+                    });
+                }
+
                 let captureCanvasCanvasElement = document.createElement('canvas');
                 captureCanvasCanvasElement.style.width = '100%';
                 captureCanvasCanvasElement.style.height = '100%';
@@ -319,6 +351,10 @@ class StyleManager {
 
             if (captureCanvasElements.captureCanvasVideoElement.srcObject !== element.srcObject) {
                 captureCanvasElements.captureCanvasVideoElement.srcObject = element.srcObject;
+                
+                // Update label to indicate source change
+                const originalLabel = captureCanvasElements.captureCanvasLabelElement.textContent;
+                captureCanvasElements.captureCanvasLabelElement.textContent = `${originalLabel} (SOURCE UPDATED)`;
             }
 
             captureCanvasElements.captureCanvasContainerElement.style.left = `${Math.round(dst_rect.left)}px`;
@@ -350,6 +386,18 @@ class StyleManager {
         const trackId = trackEvent.track?.id;
 
         this.videoTrackIdToSSRC.set(trackId, firstStreamId);
+        const newVideoElement = document.createElement('video');
+        newVideoElement.srcObject = trackEvent.stream;
+        newVideoElement.autoplay = true;
+        newVideoElement.style.width = '100%';
+        newVideoElement.style.height = '100%';
+        newVideoElement.style.objectFit = 'contain';
+        newVideoElement.style.position = 'absolute';
+        newVideoElement.style.top = '0';
+        newVideoElement.style.left = '0';
+        newVideoElement.playsinline = true;
+        this.trackToVideoElement.set(trackEvent.track, newVideoElement);
+        this.captureCanvas.appendChild(newVideoElement);
     }
 
     createCaptureCanvas() {
